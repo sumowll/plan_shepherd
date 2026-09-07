@@ -1,0 +1,25 @@
+# Review fixes — September 7, 2026
+
+The review findings were reproduced with synthetic records and public reference fixtures. The fixes below have regression coverage; no real patient records or live service credentials were used.
+
+| Area | Resulting behavior | Main implementation |
+| --- | --- | --- |
+| Conflicting drug price units | Compare extended fill/unit amounts before resolving equally applicable prices. Conflicts remain unknown and record IDs cannot change the cost. | [costs.ts](../src/domain/costs.ts) |
+| Removed or cancelled claim lines | Versioned EOB snapshots reconcile containing-resource line membership. Complete newer removals/cancellations retire old lines; partial or conflicting revisions remain unresolved. | [history.ts](../src/domain/history.ts), [fhir.ts](../src/connectors/fhir.ts) |
+| Medication identity | An unmatched NDC cannot bypass the strength/formulation checks on an actual RxNorm fallback. Exact absence from an applicable complete formulary remains distinct from unknown identity. | [matching.ts](../src/domain/matching.ts) |
+| Dated coverage assertions | Network/formulary matching uses service dates; future-effective entries cannot establish earlier coverage. | [matching.ts](../src/domain/matching.ts) |
+| Drug deductible credit | A source-configured `drug_deductible` ledger separates deductible credit from gross spending and qualifying OOP credit. Exempt copays can count toward OOP without consuming the deductible. Existing explicitly configured gross-spending phases keep their original meaning. | [costs.ts](../src/domain/costs.ts), [contracts.ts](../src/shared/contracts.ts) |
+| Encounter/claim overlap | Trusted absolute and relative references to the same encounter resolve consistently. A newly linked claim also invalidates an existing encounter forecast. | [fhir.ts](../src/connectors/fhir.ts), [reconciliation.ts](../src/client/reconciliation.ts) |
+| User corrections on reimport | A three-way merge retains corrected provider/medication fields and user selections. Changed source meaning invalidates dependent confirmations and displays the changes for review. | [reconciliation.ts](../src/client/reconciliation.ts) |
+| Stale forecast values | Corrected, removed or superseded source care requires explicit review. Users can refresh from a uniquely corresponding source draft, retain their own scenario, or remove it; edits are preserved until that decision. | [App.tsx](../src/client/App.tsx) |
+| Fractional quantities | Positive fractional medical units and dispensed prescription amounts remain editable and confirmable. Each prescription care event still represents exactly one dated fill. | [App.tsx](../src/client/App.tsx), [RecordEditors.tsx](../src/client/RecordEditors.tsx) |
+| Plans beyond the first page | Server search covers all plan/issuer names, pagination pins the release, and selections survive page/filter changes. Late responses cannot restore a discarded search. | [App.tsx](../src/client/App.tsx), [repository.ts](../src/catalog/repository.ts) |
+| Statewide plan size | County provenance is stored separately from the plan summary and reconstructed when read. Tests cover all 254 Texas counties and upgrading older published inline releases. | [migration 0003](../migrations/0003_catalog_projection.sql), [sql.ts](../scripts/catalog/sql.ts) |
+| Large price catalogs | Exact paired service/provider/location/drug/date/fill selectors run before materialization. More than 10,000 unrelated prices no longer erase an exact match. A shared 8 MiB read budget rejects oversized selections before transfer. | [repository.ts](../src/catalog/repository.ts), [limits.ts](../src/catalog/limits.ts) |
+| CMS percentage parsing | Bare percentage coinsurance values, including `20%`, retain their numeric meaning. | [cms-aca.ts](../scripts/catalog/cms-aca.ts) |
+| Production qualification | Stored coverage declarations must correspond to searchable available plans, verified benefits and county premiums covering the plan term. Withdrawn-only catalogs cannot pass availability checks. | [catalog-readiness.ts](../scripts/catalog-readiness.ts) |
+| Catalog refresh availability | Remote ingestion uses bounded query batches instead of the D1 file-import operation. Staging stays invisible, publication changes one pointer, and failed batches stop without automatic write retries. A lost final acknowledgement requires checking the active release before retrying. | [d1-query.ts](../scripts/d1-query.ts), [import-catalog.ts](../scripts/import-catalog.ts) |
+
+Validation: 229 tests across 15 files, TypeScript, client/Worker build and Wrangler deployment dry run passed. The third migration was applied to the local database. No remote database or application was deployed.
+
+Live Atrius/Cigna/AI qualification, source-specific production feed mapping, real national catalog publication and visual device review remain external release work described in [DATA_SOURCES.md](DATA_SOURCES.md), [OPERATIONS.md](OPERATIONS.md) and [VALIDATION.md](VALIDATION.md). Passing synthetic tests does not establish those integrations or source facts.

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.wrangler/
+.cache/
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+!.dev.vars.example
+coverage/
+artifacts/
+*.local
+worker-configuration.d.ts
