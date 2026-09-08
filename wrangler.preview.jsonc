@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "plan-shepherd-preview",
+  "name": "plan-shepherd",
   "account_id": "ab48bbf30b3343b679131327ae3c793f",
   "main": "./dist/plan_shepherd/index.js",
   "no_bundle": true,
@@ -19,7 +19,7 @@
   "ratelimits": [{ "name": "API_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }],
   "vars": {
     "APP_ENV": "production",
-    "APP_ORIGIN": "https://plan-shepherd-preview.late-mouse-6954.workers.dev",
+    "APP_ORIGIN": "https://plan-shepherd.late-mouse-6954.workers.dev",
     "PLAN_YEAR": "2026",
     "PATIENT_PROCESSING_APPROVED": "false",
     "AI_PROCESSING_APPROVED": "false",

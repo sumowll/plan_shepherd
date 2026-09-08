@@ -15,6 +15,7 @@ async function deploy() {
   if (failures.length) throw new Error(`Production deployment is not ready:\n${failures.map(x => `- ${x}`).join('\n')}`);
   const readiness = readinessSchema.parse(record);
   verifyCatalogReadiness(await queryD1(env, catalogReadinessSql), readiness);
+  runWrangler(['types', '--config', join(projectRoot, 'wrangler.jsonc'), '--include-runtime', 'false', '--strict-vars', 'false'], env);
   for (const args of [['node_modules/typescript/bin/tsc', '--noEmit'], ['node_modules/vitest/vitest.mjs', 'run'], ['node_modules/vite/bin/vite.js', 'build']]) {
     const result = spawnSync(process.execPath, [join(projectRoot, args[0]), ...args.slice(1)], { cwd: projectRoot, env: deploymentEnvironment(env), stdio: 'inherit', shell: false });
     if (result.error || result.status !== 0) throw new Error('Required release validation failed. Nothing was deployed.');

@@ -103,7 +103,7 @@ Imports stage a complete release and change one active pointer after schema/coun
 
 ## Hosted preview
 
-The separate `wrangler.preview.jsonc` configuration targets Worker `plan-shepherd-preview` in the Moonba account at `https://plan-shepherd-preview.late-mouse-6954.workers.dev`. It uses production browser security headers and API rate limiting, with patient connections, AI and production release approvals explicitly disabled. It attaches no integration secrets or D1 database. Manual intake and bundled county lookup work; catalog searches report missing sources and no plans. This is a preview for evaluating the interface, and `/api/status` reports `productionReady: false`.
+The `wrangler.preview.jsonc` configuration targets Worker `plan-shepherd` in the Moonba account at `https://plan-shepherd.late-mouse-6954.workers.dev`, matching the connected Cloudflare Git build. It uses production browser security headers and API rate limiting, with patient connections, AI and production release approvals explicitly disabled. It attaches no integration secrets or D1 database. Manual intake and bundled county lookup work; catalog searches report missing sources and no plans. This is a preview for evaluating the interface, and `/api/status` reports `productionReady: false`.
 
 Using Node.js 24:
 
@@ -113,7 +113,19 @@ npm run deploy:preview:check
 npm run deploy:preview
 ```
 
-The commands build the application and deploy only the compiled Worker and public client assets. Local `.env` and `.dev.vars` credentials are not uploaded. The preview configuration has its own Worker name and does not change the production deployment gates. To target another account, update its `account_id`, `name` and exact HTTPS `APP_ORIGIN` together. The default `npm run deploy` still runs the fully qualified production release workflow below.
+The commands build the application and deploy only the compiled Worker and public client assets. Local `.env` and `.dev.vars` credentials are not uploaded. The preview configuration does not change the production deployment gates. To target another account, update its `account_id`, `name` and exact HTTPS `APP_ORIGIN` together. The default `npm run deploy` still runs the fully qualified production release workflow below.
+
+For Cloudflare Workers Builds connected to this repository, use:
+
+| Setting | Value |
+| --- | --- |
+| Worker name | `plan-shepherd` |
+| Root directory | `/` |
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy --config wrangler.preview.jsonc` |
+| Non-production branch deploy command | `npx wrangler versions upload --config wrangler.preview.jsonc` |
+
+Build and typecheck commands generate `worker-configuration.d.ts` from the source Wrangler configuration before TypeScript runs. This file remains ignored by Git. The explicit preview config on deploy avoids the development settings and placeholder database ID in Vite's default generated configuration.
 
 Check `/`, its referenced JavaScript/CSS assets, `/api/health`, `/api/status` and `/api/geography/counties?state=MA` after deployment. HTML must have `Cache-Control: no-store`, CSP and HSTS; the API status must show disabled connections and AI, no catalog and `productionReady: false`. Source control includes regression tests for asset response headers.
 
