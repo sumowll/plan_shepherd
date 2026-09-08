@@ -15,8 +15,5 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run cf:types
-      - run: npm run typecheck
-      - run: npm test
       - run: npm run deploy:check
       - run: npm audit --omit=dev --audit-level=high

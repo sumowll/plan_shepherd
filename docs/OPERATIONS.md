@@ -2,9 +2,11 @@
 
 ## Local setup and registrations
 
-The repository has a runnable application, public-catalog migrations and release tooling. It has no production account, source license, secret, completed release approval or deployed application. Manual intake works while unavailable sources remain visible.
+The application has a hosted preview at [plan-shepherd.moonbacare.com](https://plan-shepherd.moonbacare.com), public-catalog migrations and release tooling. Source licenses, secrets and completed production release approvals are not bundled. Manual intake works while unavailable sources remain visible.
 
 Copy `.env.example` to `.env`. `npm run dev` prepares `.dev.vars` with mode 0600 and uses the exact HTTP loopback host and port in `APP_ORIGIN`, defaulting to `http://127.0.0.1:5173`. It refuses to switch ports when one is occupied. Restart after configuration changes. `npm run env:prepare` remains available separately. Shell environment values override the file. Application settings and the environment bindings explicitly referenced by the registry enter Worker bindings; unrelated deployment/feed credentials remain tooling-only. Never use `VITE_` for a secret.
+
+This `.env` workflow is for local development and catalog/migration tooling. Deployment reads committed Wrangler configuration and a separate application-secret source, as described below; it never loads `.env` or `.dev.vars`.
 
 ## Connector registry
 
@@ -27,7 +29,7 @@ For example, append this record while retaining any existing connections you wan
 }
 ```
 
-Set `HOSPITAL_123_CLIENT_ID` and `HOSPITAL_123_CLIENT_SECRET` privately in `.env` or CI's secret environment. The environment preparation and deployment scripts automatically include these referenced bindings. A public registration may instead specify `tokenAuthMethod: "none"` and omit `clientSecretEnv`; a public `clientId` literal is also supported. Client secrets must use `clientSecretEnv`; the registry rejects literal `clientSecret` values and references to unrelated application secrets. Declaring `clientSecretEnv` requires that secret unless the authentication method is explicitly `none`. The JSON is versioned configuration, so do not store secrets or patient data in it.
+For local development, set `HOSPITAL_123_CLIENT_ID` and `HOSPITAL_123_CLIENT_SECRET` in `.env`. For deployment, put the public client ID in the target Wrangler config's `vars` and the secret in the target secret file or CI's secret environment. The scripts recognize bindings referenced by the selected registry. A public registration may instead specify `tokenAuthMethod: "none"` and omit `clientSecretEnv`; a public `clientId` literal is also supported. Client secrets must use `clientSecretEnv`; the registry rejects literal `clientSecret` values and references to unrelated application secrets. Declaring `clientSecretEnv` requires that secret unless the authentication method is explicitly `none`. The JSON is versioned configuration, so do not store secrets or patient data in it.
 
 Register the exact `<APP_ORIGIN>/oauth/callback/hospital-123` callback in this server's client registration, including protocol, hostname, port and path. For example, with `APP_ORIGIN=http://localhost:3000`, use `http://localhost:3000/oauth/callback/hospital-123`. Production uses the public HTTPS application origin. An optional `redirectUri` must match that origin and the entry's callback path. The shared handler validates the connection identity against the sign-in attempt. Adding a registry record does not automatically register a client or grant access with an external server.
 
@@ -35,7 +37,7 @@ Use `kind: "provider"` or `"payer"` for display and default imports, and select 
 
 The bundled Atrius and Cigna records retain their current IDs, callback URLs, scope defaults and environment prefixes. `legacyEnvPrefixes` exists to preserve those registrations; new records should use explicit `clientIdEnv` and `clientSecretEnv` references. Restart local development after registry or environment changes. Rebuild and redeploy for production registry changes.
 
-For small environment-specific catalogs, `CONNECTOR_REGISTRY` may contain a JSON array that **replaces the entire bundled registry**. An explicit blank or invalid value fails validation; omit the variable to use the bundled file. Local preparation and deployment preserve the override and reject values over 5,120 UTF-8 bytes. Keep large catalogs in `config/connectors.json` so the catalog itself does not consume a Worker variable. Cloudflare also limits the number of variables and secrets, so a catalog with thousands of separate credential bindings requires a separate credential-storage design; this registry does not remove those platform limits. See [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/#environment-variables).
+For small environment-specific catalogs, `CONNECTOR_REGISTRY` may contain a JSON array that **replaces the entire bundled registry**. Set it in `.env` locally or the target Wrangler config's `vars` for deployment. An explicit blank or invalid value fails validation; omit the variable to use the bundled file. Local preparation and deployment preserve the override and reject values over 5,120 UTF-8 bytes. Keep large catalogs in `config/connectors.json` so the catalog itself does not consume a Worker variable. Cloudflare also limits the number of variables and secrets, so a catalog with thousands of separate credential bindings requires a separate credential-storage design; this registry does not remove those platform limits. See [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/#environment-variables).
 
 ## Client registration settings
 
@@ -68,7 +70,7 @@ Run `npm run connectors:check` after editing `.env` or the registry. It lists ev
 
 For an unavailable connector, follow the reported issue: supply the client ID and secret through its referenced bindings, configure its public HTTPS `fhirBaseUrl`, and check `SESSION_SIGNING_KEY` and the environment's existing `PATIENT_PROCESSING_APPROVED` control. For the bundled defaults, continue using `*_CLIENT_ID`, `*_CLIENT_SECRET` and `*_FHIR_BASE_URL`; Atrius has a default FHIR base and Cigna requires one. Match `APP_ORIGIN`, callback path, client authentication method and requested scopes to the actual registration. Then restart with `npm run dev` and use **Retry availability** in the connection section. For Cigna's documented scope request, set `CIGNA_SCOPES=openid fhirUser patient/*.read`.
 
-Generate an application signing secret locally, then put it in `.env` or your secret manager:
+Generate an application signing secret locally, then put it in `.env` for local development, the target deployment secret file, or your secret manager:
 
 ```sh
 node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
@@ -88,7 +90,7 @@ Worker logs/traces and deployment Logpush are disabled. Account-level services a
 
 ## Public catalog operations
 
-Provision D1 `plan-shepherd-catalog`; put its actual ID, account ID and scoped API token in `.env`. Scripts never create or delete a remote database implicitly.
+Provision D1 `plan-shepherd-catalog`; catalog and migration tooling still reads its actual ID, account ID and scoped API token from `.env` or shell variables. Put the same actual database ID in `wrangler.production.jsonc` for deployment. Scripts never create or delete a remote database implicitly.
 
 ```sh
 npm run db:migrate:production
@@ -101,13 +103,52 @@ Use `--bundle` for national partitions. Review source rights, versions, freshnes
 
 Imports stage a complete release and change one active pointer after schema/count checks. Published data is immutable. Failed imports leave the previous release active; identify failed staging rows before cleanup. Retain published releases for comparisons pinned to them.
 
+## Deployment configuration and secrets
+
+Deployment treats `wrangler.preview.jsonc` and `wrangler.production.jsonc` as the authoritative public configuration for their targets. Both checked-in targets describe release modes of the same Worker and domain, not separate staging and production applications. Configure the account, Worker name, routes, bindings, public client IDs, endpoints, scopes, model and approval settings there. The production config must contain the actual D1 catalog database ID before release. Deployment settings never come from local `.env` or generated `.dev.vars`; public values in shell/CI do not override the selected config. Keep dashboard changes synchronized with the committed config because deployment replaces dashboard variables with those values.
+
+Application secrets come from the optional ignored `.env.secrets.preview` or `.env.secrets.production` file, according to the selected target. Recognized application secret variables in shell/CI override that file. Use `.env.secrets.example` as a comments-only template and uncomment only the keys to upload:
+
+```sh
+cp .env.secrets.example .env.secrets.preview
+chmod 600 .env.secrets.preview
+# Fill selected application secret values privately, then:
+npm run deploy:preview:check
+npm run deploy:preview
+```
+
+Recognized secrets include `SESSION_SIGNING_KEY`, `AI_API_KEY`, bundled `ATRIUS_CLIENT_SECRET`, `EPIC_CLIENT_SECRET` and `CIGNA_CLIENT_SECRET`, and every `clientSecretEnv` or legacy `*_CLIENT_SECRET` binding declared by the selected connector registry. Put public `clientIdEnv` values in the Wrangler config's `vars`. Keep Cloudflare API credentials in shell/CI; they are tooling credentials and must not go in the application-secret file. Preview deployments can use an existing `npx wrangler login` session. Production also requires `CLOUDFLARE_API_TOKEN` and `PRODUCTION_READINESS_FILE` in shell/CI.
+
+Omitting a secret preserves its existing remote value. An explicit blank connector secret can replace a remote binding with an empty value for a public PKCE registration, including an intentional blank `ATRIUS_CLIENT_SECRET` to suppress a legacy Epic fallback. Set the corresponding public authentication method to `none`. Blank secrets required by an enabled feature or confidential registration are rejected. Production validation requires its necessary secrets to be supplied; it does not retrieve existing remote secret values to satisfy release checks.
+
+These npm commands use `scripts/deploy.ts`:
+
+| Command | Behavior |
+| --- | --- |
+| `npm run deploy:preview:check` | Validate, test and build the preview; run Wrangler without publishing |
+| `npm run deploy:preview` | Validate, test, build and deploy the preview with supplied application secrets |
+| `npm run deploy:preview:upload` | Validate, test, build and upload a preview version without activating it |
+| `npm run deploy:production:check` | Run production release gates, verify the remote catalog, test/build and perform a deployment dry run |
+| `npm run deploy` | Run the same production checks and publish the qualified release |
+
+The script accepts `--target preview|production` (default `production`), `--config <jsonc>`, `--secrets-file <dotenv>` and `--dry-run`. `--upload-only` and `--skip-build` are preview-only options; skipping the build still runs tests and is intended for CI that already ran `npm run build`. A missing default secret file is allowed; a missing explicitly requested file is an error. For example:
+
+```sh
+npm run deploy:preview:check -- --config wrangler.preview.jsonc --secrets-file /private/path/preview-secrets.env
+npm run deploy:preview -- --config wrangler.preview.jsonc --secrets-file /private/path/preview-secrets.env
+```
+
+Deployment passes application secrets with the Worker version through Wrangler's `--secrets-file`; they do not enter command arguments, the frontend or catalog. Private temporary deployment files are removed on success or failure. Inspect `.cache/deployment-*` after an abnormal OS shutdown that bypasses cleanup. Do not use raw `wrangler deploy` or `wrangler versions upload` as a substitute for these scripts: the wrapper loads the intended secret sources and runs the target's checks.
+
+`npm run build` also uses an isolated temporary Wrangler config, disables frontend dotenv loading, and excludes application secrets from build subprocesses. Each wrapper-controlled Wrangler command receives an explicit empty environment file. This prevents local development bindings from being copied into build output or replacing deployment settings. `npm run deploy:check` runs the same preview checks as `deploy:preview:check`; CI uses it for type generation, TypeScript, tests, the build and a deployment dry run.
+
 ## Hosted preview
 
-The `wrangler.preview.jsonc` configuration targets Worker `plan-shepherd` in the Moonba account at `https://plan-shepherd.moonbacare.com`, matching the connected Cloudflare Git build. It uses production browser security headers and API rate limiting, with patient connections, AI and production release approvals explicitly disabled. It attaches no integration secrets or D1 database. Manual intake and bundled county lookup work; catalog searches report missing sources and no plans. This is a preview for evaluating the interface, and `/api/status` reports `productionReady: false`.
+The `wrangler.preview.jsonc` configuration targets Worker `plan-shepherd` in the Moonba account at `https://plan-shepherd.moonbacare.com`, matching the connected Cloudflare Git build. It uses production browser security headers and API rate limiting, with patient connections, AI and production release approvals explicitly disabled. It has no D1 binding. Manual intake and bundled county lookup work; catalog searches report missing sources and no plans. The preview can receive application secrets through the deployment workflow while those processing controls remain disabled. `/api/status` reports `productionReady: false`.
 
-`APP_ORIGIN` sets the trusted application origin and OAuth callbacks; it does not create a public hostname. The preview config also declares `plan-shepherd.moonbacare.com` as a Worker custom domain, letting Cloudflare manage its DNS record and HTTPS certificate. The old workers.dev address is disabled to keep browser requests on the configured origin. Keep this config synchronized with dashboard changes; deployment replaces dashboard variables with the configured values.
+`APP_ORIGIN` sets the trusted application origin and OAuth callbacks; it does not create a public hostname. The preview config also declares `plan-shepherd.moonbacare.com` as a Worker custom domain, letting Cloudflare manage its DNS record and HTTPS certificate. The old workers.dev address is disabled to keep browser requests on the configured origin. To target another account or hostname, update `account_id`, `name`, `routes` and exact HTTPS `APP_ORIGIN` together.
 
-Using Node.js 24:
+Using Node.js 24 and the optional secret setup above:
 
 ```sh
 npx wrangler login
@@ -115,32 +156,45 @@ npm run deploy:preview:check
 npm run deploy:preview
 ```
 
-The commands build the application and deploy only the compiled Worker and public client assets. Local `.env` and `.dev.vars` credentials are not uploaded. The preview configuration does not change the production deployment gates. To target another account, update its `account_id`, `name` and exact HTTPS `APP_ORIGIN` together. The default `npm run deploy` still runs the fully qualified production release workflow below.
-
-For Cloudflare Workers Builds connected to this repository, use:
+For the existing Cloudflare Workers Builds integration, use:
 
 | Setting | Value |
 | --- | --- |
 | Worker name | `plan-shepherd` |
 | Root directory | `/` |
 | Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy --config wrangler.preview.jsonc` |
-| Non-production branch deploy command | `npx wrangler versions upload --config wrangler.preview.jsonc` |
+| Deploy command | `npm run deploy:preview -- --skip-build` |
+| Non-production branch deploy command | `npm run deploy:preview:upload -- --skip-build` |
 
-Build and typecheck commands generate `worker-configuration.d.ts` from the source Wrangler configuration before TypeScript runs. This file remains ignored by Git. The explicit preview config on deploy avoids the development settings and placeholder database ID in Vite's default generated configuration.
+Store application secrets as secret variables in the Cloudflare build environment using their recognized binding names. The deployment script explicitly passes these values to Wrangler as Worker secrets; a build variable alone does not become a runtime binding. Public runtime values remain in the committed config. The build integration already provides deployment credentials, so a separate GitHub Actions live-deployment workflow is unnecessary. Non-production branch uploads do not activate their version or change the live deployment.
+
+Build and typecheck commands generate `worker-configuration.d.ts` from the source Wrangler configuration before TypeScript runs. This file remains ignored by Git. The target deployment config avoids the development settings and placeholder database ID in Vite's default generated configuration.
 
 Check `/`, its referenced JavaScript/CSS assets, `/api/health`, `/api/status` and `/api/geography/counties?state=MA` after deployment. HTML must have `Cache-Control: no-store`, CSP and HSTS; the API status must show disabled connections and AI, no catalog and `productionReady: false`. Source control includes regression tests for asset response headers.
 
 ## Production release
 
-1. Run `npm ci`, `npm run cf:types`, `npm run typecheck`, `npm test`, and `npm run deploy:check`. The last command performs a local dry run without deploying.
-2. Configure public HTTPS `APP_ORIGIN`, `APP_ENV=production`, database, secrets and approved service settings. `CLOUDFLARE_CUSTOM_DOMAIN=true` binds that hostname; otherwise use the exact workers.dev origin. Preview URLs are disabled.
-3. Verify live authorized Atrius and Cigna employer imports: identity/context, scopes, 2025 dates, paging/references, expiry/errors, partial data, cancellation and clearing. Cigna sandbox imports cannot satisfy the employer-import requirement; retain this release gate until the intended production endpoint and member population are available and qualified. Keep patient payloads out of test artifacts.
-4. Independently qualify catalog/calculation results. Verify each of 153 state/family combinations as available with reviewed data or not offered with evidence. A missing source cannot be labeled not offered.
-5. Create a release record with `npm run readiness:template -- /path/to/readiness.json`; set `PRODUCTION_READINESS_FILE`. The template has no approvals. Complete actual evidence for live imports, retention/service scope, callbacks, calculations, load and incident/rollback review without patient data.
-6. Run `npm run verify:production`, then `npm run deploy:production:check` for remote catalog verification and a production-configured dry run. The authorized operator then runs `npm run deploy`.
+1. Run `npm ci`, `npm run typecheck`, `npm test`, and `npm run deploy:check`. The last command performs a local build dry run without deploying; it does not qualify a production release.
+2. Configure `wrangler.production.jsonc` with the intended account and Worker, public HTTPS `APP_ORIGIN`, `APP_ENV=production`, actual D1 database ID and approved service settings. Declare a matching `routes` entry with `custom_domain: true` for a custom hostname and disable `workers_dev`; otherwise use the exact workers.dev origin. Keep preview URLs disabled. Public client IDs and endpoint configuration belong in `vars` or the connector registry.
+3. Create the optional production application-secret file as shown below or supply the recognized keys through shell/CI. Supply `CLOUDFLARE_API_TOKEN` through shell/CI separately.
+4. Verify live authorized Atrius and Cigna employer imports: identity/context, scopes, 2025 dates, paging/references, expiry/errors, partial data, cancellation and clearing. Cigna sandbox imports cannot satisfy the employer-import requirement; retain this release gate until the intended production endpoint and member population are available and qualified. Keep patient payloads out of test artifacts.
+5. Independently qualify catalog/calculation results. Verify each of 153 state/family combinations as available with reviewed data or not offered with evidence. A missing source cannot be labeled not offered.
+6. Create a release record with `npm run readiness:template -- /path/to/readiness.json`; set `PRODUCTION_READINESS_FILE` in shell/CI. The template has no approvals. Complete actual evidence for live imports, retention/service scope, callbacks, calculations, load and incident/rollback review without patient data.
+7. Run `npm run deploy:production:check` for remote catalog verification and a production-configured dry run. The authorized operator then runs `npm run deploy`.
 
-Deployment rereads `.env`, validates every enabled registry entry, verifies the actual D1 active release against the record (including searchable available plans, verified benefits, and plan-term premium data for each offered county), runs tests/build, creates private temporary config with the real DB/runtime values, and supplies secrets through Wrangler's `--secrets-file`. Bindings referenced by any `clientSecretEnv`, and legacy `*_CLIENT_SECRET` bindings, are stored as Worker secrets alongside the signing key and AI key. Disabled optional registrations do not block configuration verification; the existing independent live Atrius and Cigna employer-import attestations remain required release gates. Temporary files are cleaned on success/failure. Inspect `.cache/deployment-*` after an abnormal OS shutdown that bypassed cleanup. Secrets do not enter command arguments, the frontend or catalog. Publishing a different catalog release requires fresh release qualification.
+```sh
+cp .env.secrets.example .env.secrets.production
+chmod 600 .env.secrets.production
+# Fill the required application secrets privately and configure Wrangler.
+# Supply CLOUDFLARE_API_TOKEN through your shell or CI secret manager.
+export PRODUCTION_READINESS_FILE=/path/to/reviewed-readiness.json
+npm run deploy:production:check
+npm run deploy
+```
+
+Deployment validates every enabled registry entry and verifies the actual D1 active release against the record, including searchable available plans, verified benefits, and plan-term premium data for each offered county. It runs tests/build and supplies the qualified release ID with the deployment. Disabled optional registrations do not block configuration verification; the independent live Atrius and Cigna employer-import attestations remain required release gates. Publishing a different catalog release requires fresh release qualification.
+
+The standalone `npm run verify:production` command still checks local `.env` and readiness settings. Use `npm run deploy:production:check` to validate the committed configuration and secret sources that will actually be deployed. Catalog and migration commands continue using their existing `.env` workflow.
 
 ## Monitoring and recovery
 

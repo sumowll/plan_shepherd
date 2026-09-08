@@ -9,27 +9,24 @@
   "workers_dev": false,
   "routes": [{ "pattern": "plan-shepherd.moonbacare.com", "custom_domain": true }],
   "preview_urls": false,
-  "assets": {
-    "directory": "./dist/client",
-    "not_found_handling": "single-page-application",
-    "binding": "ASSETS",
-    "run_worker_first": true
-  },
+  "assets": { "directory": "./dist/client", "not_found_handling": "single-page-application", "binding": "ASSETS", "run_worker_first": true },
   "observability": { "enabled": false, "logs": { "enabled": false }, "traces": { "enabled": false } },
   "logpush": false,
   "ratelimits": [{ "name": "API_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }],
+  // Replace the placeholder with the provisioned public catalog database before qualifying a release.
+  "d1_databases": [{ "binding": "CATALOG", "database_name": "plan-shepherd-catalog", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "./migrations" }],
   "vars": {
     "APP_ENV": "production",
     "APP_ORIGIN": "https://plan-shepherd.moonbacare.com",
     "PLAN_YEAR": "2026",
-    // "ATRIUS_CLIENT_ID":,
-    // "BCH_CLIENT_ID":,
-    "EPIC_CLIENT_ID": "582e1153-7cb5-417f-8979-05a5e9beddc8",
+    "EPIC_CLIENT_ID": "e8184f19-fd11-4fe6-b33c-8981256b9b57",
     "CIGNA_CLIENT_ID": "93927d8b-32b4-4c28-bb78-2002e8239da2",
-    "AETNA_CLIENT_ID": "aetna-moonbacare",
+    "AETNA_CLIENT_ID": "",
+    // Set service flags only after the existing production qualification checks are satisfied.
     "PATIENT_PROCESSING_APPROVED": "false",
     "AI_PROCESSING_APPROVED": "false",
     "AI_RETENTION_VERIFIED": "false",
+    // The deployment script fills these two fields from the verified release record.
     "PRODUCTION_RELEASE_APPROVED": "false",
     "PRODUCTION_CATALOG_RELEASE_ID": ""
   }

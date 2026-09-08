@@ -52,3 +52,36 @@ describe('connector launch routes', () => {
     expect(body).not.toContain(env.EPIC_CLIENT_ID);
   });
 });
+
+describe('BCH callback', () => {
+  const settings = { APP_ENV: 'development', APP_ORIGIN: 'https://fhir.moonbacare.com' };
+  const callback = `${settings.APP_ORIGIN}/auth/callback/bch`;
+
+  it.each(['GET', 'POST'])('returns the registered %s callback to the application', async method => {
+    const values = new URLSearchParams({ state: 'expected-state', code: 'synthetic-code' });
+    const response = await app.request(`${callback}${method === 'GET' ? `?${values}` : ''}`,
+      method === 'POST' ? { method, body: values, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } } : {}, settings);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain('"connector":"bch"');
+    expect(html).toContain('"code":"synthetic-code"');
+    expect(html).toContain('"state":"expected-state"');
+    expect(html).toContain(`,"${settings.APP_ORIGIN}")`);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Content-Security-Policy')).toContain("default-src 'none'");
+  });
+
+  it.each([
+    ['https://wrong.example/auth/callback/bch', 400],
+    [`${settings.APP_ORIGIN}/oauth/callback/bch`, 400],
+    [`${settings.APP_ORIGIN}/auth/callback/unknown`, 404],
+  ])('rejects an unregistered callback address: %s', async (url, status) => {
+    expect((await app.request(url, {}, settings)).status).toBe(status);
+  });
+
+  it('applies callback rate limiting', async () => {
+    const response = await app.request(callback, {}, { ...settings, API_RATE_LIMITER: { limit: async () => ({ success: false }) } });
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ error: { code: 'rate_limited' } });
+  });
+});

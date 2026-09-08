@@ -25,7 +25,7 @@ app.use('*', async (c, next) => {
     if (origin && origin !== appOrigin(c.env, c.req.url)) throw new AppError('origin_forbidden', 'This request must originate from the application.', 403);
     if (c.req.header('Sec-Fetch-Site') === 'cross-site') throw new AppError('origin_forbidden', 'Cross-site requests are not accepted.', 403);
   }
-  if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/oauth/callback/') || c.req.path === '/auth/callback') {
+  if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/oauth/callback/') || c.req.path.startsWith('/auth/callback/') || c.req.path === '/auth/callback') {
     const limiter = c.env.API_RATE_LIMITER;
     if (limiter) {
       const ip = c.req.header('CF-Connecting-IP') ?? 'local';
@@ -114,7 +114,7 @@ app.post('/api/connectors/:id/references', async c => {
   if (!/^Bearer [^\s]{1,12000}$/.test(authorization)) throw new AppError('authorization_required', 'Connect before importing records.', 401);
   return c.json(await getReferences(c.env, id, referenceRequestSchema.parse(await readRequest(c.req.raw, 120000)), authorization.slice(7)));
 });
-app.on(['GET', 'POST'], ['/oauth/callback/:id', '/auth/callback'], async c => {
+app.on(['GET', 'POST'], ['/oauth/callback/:id', '/auth/callback/:id', '/auth/callback'], async c => {
   const definition = c.req.path === '/auth/callback'
     ? connectorRegistry(c.env).find(entry => entry.legacyCallbackPath === c.req.path)
     : connectorDefinition(c.env, c.req.param('id'));

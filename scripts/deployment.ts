@@ -6,14 +6,24 @@ import { runtimeEnvironmentKeys } from './env';
 
 export const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 export function deploymentEnvironment(env: Record<string, string>): NodeJS.ProcessEnv {
-  return { ...process.env, ...env, WRANGLER_LOG_PATH: join(projectRoot, '.cache/wrangler'), WRANGLER_SEND_METRICS: 'false' };
+  // Builds need operating-system settings, not the operator's app credentials or VITE_* values.
+  const systemKeys = ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'SYSTEMROOT', 'APPDATA', 'LOCALAPPDATA', 'TMPDIR', 'TMP', 'TEMP', 'CI', 'TERM', 'NO_COLOR', 'FORCE_COLOR', 'LANG'];
+  const system = Object.fromEntries(systemKeys.flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
+  return {
+    ...system, APP_ENV: 'development', PLAN_YEAR: '2026', PATIENT_PROCESSING_APPROVED: 'false', AI_PROCESSING_APPROVED: 'false',
+    CLOUDFLARE_API_TOKEN: '', CLOUDFLARE_API_KEY: '', CLOUDFLARE_EMAIL: '', CLOUDFLARE_ACCOUNT_ID: '', ...env,
+    CLOUDFLARE_ENV: '', CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false', CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false',
+    CLOUDFLARE_VITE_FORCE_LOCAL: 'true', CLOUDFLARE_VITE_BUILD: '',
+    WRANGLER_LOG_PATH: join(projectRoot, '.cache/wrangler'), WRANGLER_SEND_METRICS: 'false',
+    WRANGLER_WRITE_LOGS: 'false', WRANGLER_LOG_SANITIZE: 'true', WRANGLER_LOG: 'warn',
+  };
 }
 export function runWrangler(args: string[], env: Record<string, string>): void {
   const result = spawnSync(process.execPath, [join(projectRoot, 'node_modules/wrangler/bin/wrangler.js'), ...args], { cwd: projectRoot, env: deploymentEnvironment(env), stdio: 'inherit', shell: false });
   if (result.error || result.status !== 0) throw new Error('Wrangler did not complete. Review its diagnostic output; no credentials were printed by this script.');
 }
 /** A private temporary configuration resolves paths explicitly and is removed even on failure. */
-export async function withProductionConfig<T>(env: Record<string, string>, action: (configPath: string, secretsPath: string) => Promise<T>, options: { built?: boolean; approvedReleaseId?: string } = {}): Promise<T> {
+export async function withProductionConfig<T>(env: Record<string, string>, action: (configPath: string, secretsPath: string, emptyEnvPath: string) => Promise<T>, options: { built?: boolean; approvedReleaseId?: string } = {}): Promise<T> {
   const { runtimeKeys, secretKeys } = runtimeEnvironmentKeys(env);
   const secretBindings = new Set(secretKeys);
   if (!/^[a-f\d]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID ?? '')) throw new Error('A valid CLOUDFLARE_ACCOUNT_ID is required.');
@@ -37,12 +47,23 @@ export async function withProductionConfig<T>(env: Record<string, string>, actio
     const origin = new URL(env.APP_ORIGIN);
     config.routes = [{ pattern: origin.hostname, custom_domain: true }]; config.workers_dev = false;
   } else { config.routes = []; config.workers_dev = true; }
+  const secrets = Object.fromEntries(secretKeys.filter(key => env[key] !== undefined).map(key => [key, env[key]]));
+  return withDeploymentFiles(config, secrets, action);
+}
+
+/** Shared by every deployment target. The empty env file disables Wrangler's implicit .env loading. */
+export async function withDeploymentFiles<T>(
+  config: Record<string, unknown>, secrets: Record<string, string>,
+  action: (configPath: string, secretsPath: string, emptyEnvPath: string) => Promise<T>,
+): Promise<T> {
   const cache = join(projectRoot, '.cache'); await mkdir(cache, { recursive: true });
   const directory = await mkdtemp(join(cache, 'deployment-'));
   try {
     const configPath = join(directory, 'wrangler.json'); const secretsPath = join(directory, 'secrets.json');
+    const emptyEnvPath = join(directory, 'empty.env');
     await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
-    await writeFile(secretsPath, JSON.stringify(Object.fromEntries(secretKeys.filter(key => env[key] !== undefined).map(key => [key, env[key]]))), { mode: 0o600 });
-    return await action(configPath, secretsPath);
+    await writeFile(secretsPath, JSON.stringify(secrets), { mode: 0o600 });
+    await writeFile(emptyEnvPath, '', { mode: 0o600 });
+    return await action(configPath, secretsPath, emptyEnvPath);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

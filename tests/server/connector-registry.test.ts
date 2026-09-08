@@ -40,7 +40,7 @@ describe('configuration registry', () => {
   it('does not inherit removed legacy integrations when a registry override is supplied', () => {
     expect(connectorRegistry({ ...env, CONNECTOR_REGISTRY: '[]' })).toEqual([]);
     expect(() => connectorConfig(env, 'atrius')).toThrow('not registered');
-    expect(connectorRegistry({}).map(entry => entry.id)).toEqual(['atrius', 'cigna']);
+    expect(connectorRegistry({}).map(entry => entry.id)).toEqual(['atrius', 'bch', 'cigna']);
   });
 
   it('retains the exact registered spelling after validating the origin and path', () => {

@@ -1,6 +1,15 @@
 [
   {
-    "id": "atrius",
+    "id": "epic",
+    "name": "Epic",
+    "kind": "provider",
+    "scopeProfile": "epic",
+    "fhirBaseUrl": "https://iatrius.atriushealth.org/FHIR/api/FHIR/R4",
+    "legacyEnvPrefixes": ["EPIC"],
+    "legacyCallbackPath": "/auth/callback"
+  },
+  {
+    "id": "atrius-health",
     "name": "Atrius Health",
     "kind": "provider",
     "scopeProfile": "epic",
@@ -9,11 +18,27 @@
     "legacyCallbackPath": "/auth/callback"
   },
   {
+    "id": "bch",
+    "name": "Boston Children's Hospital",
+    "kind": "provider",
+    "scopeProfile": "smart",
+    "fhirBaseUrl": "https://fhir.bch.org/fhir",
+    "legacyEnvPrefixes": ["BCH"]
+  },
+  {
     "id": "cigna",
     "name": "Cigna",
     "kind": "payer",
     "scopeProfile": "cigna",
     "legacyEnvPrefixes": ["CIGNA"],
     "testFhirBaseUrls": ["https://fhir.cigna.com/PatientAccess/v1-devportal"]
+  },
+  {
+    "id": "aetna",
+    "name": "Aetna",
+    "kind": "payer",
+    "scopeProfile": "aetna",
+    "legacyEnvPrefixes": ["AETNA"],
+    "testFhirBaseUrls": ["https://fhir.aetna.com/PatientAccess/v1-devportal"]
   }
 ]

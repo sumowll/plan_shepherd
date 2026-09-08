@@ -1,27 +1,50 @@
-import { readFile } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
-import { readEnvironment } from './env';
+import { readFile, stat } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { readinessSchema, verifyProduction } from './verify-production';
-import { deploymentEnvironment, projectRoot, runWrangler, withProductionConfig } from './deployment';
+import { runWrangler, withDeploymentFiles } from './deployment';
+import { loadDeploymentSettings, parseDeploymentOptions } from './deploy-settings';
+import { buildApplication, runProjectCommand } from './build';
 import { queryD1 } from './d1-query';
 import { catalogReadinessSql, verifyCatalogReadiness } from './catalog-readiness';
 
-async function deploy() {
-  const env = await readEnvironment();
-  let record: unknown;
-  try { record = JSON.parse(await readFile(env.PRODUCTION_READINESS_FILE ?? '', 'utf8')); } catch { record = null; }
-  const failures = await verifyProduction(env, record);
-  if (failures.length) throw new Error(`Production deployment is not ready:\n${failures.map(x => `- ${x}`).join('\n')}`);
-  const readiness = readinessSchema.parse(record);
-  verifyCatalogReadiness(await queryD1(env, catalogReadinessSql), readiness);
-  runWrangler(['types', '--config', join(projectRoot, 'wrangler.jsonc'), '--include-runtime', 'false', '--strict-vars', 'false'], env);
-  for (const args of [['node_modules/typescript/bin/tsc', '--noEmit'], ['node_modules/vitest/vitest.mjs', 'run'], ['node_modules/vite/bin/vite.js', 'build']]) {
-    const result = spawnSync(process.execPath, [join(projectRoot, args[0]), ...args.slice(1)], { cwd: projectRoot, env: deploymentEnvironment(env), stdio: 'inherit', shell: false });
-    if (result.error || result.status !== 0) throw new Error('Required release validation failed. Nothing was deployed.');
+export async function deploy(args: string[]): Promise<void> {
+  const options = parseDeploymentOptions(args);
+  const { config, secrets, env } = await loadDeploymentSettings(options);
+  if (options.target === 'production') {
+    let record: unknown;
+    try { record = JSON.parse(await readFile(env.PRODUCTION_READINESS_FILE ?? '', 'utf8')); } catch { record = null; }
+    const failures = await verifyProduction(env, record);
+    if (failures.length) throw new Error(`Production deployment is not ready:\n${failures.map(x => `- ${x}`).join('\n')}`);
+    const readiness = readinessSchema.parse(record);
+    verifyCatalogReadiness(await queryD1(env, catalogReadinessSql), readiness);
+    config.vars.PRODUCTION_RELEASE_APPROVED = 'true';
+    config.vars.PRODUCTION_CATALOG_RELEASE_ID = readiness.catalogReleaseId;
   }
-  await withProductionConfig(env, async (configPath, secretsPath) => {
-    runWrangler(['deploy', '--config', configPath, '--secrets-file', secretsPath, ...(process.argv.includes('--dry-run') ? ['--dry-run'] : [])], env);
-  }, { built: true, approvedReleaseId: readiness.catalogReleaseId });
+  if (options.skipBuild) runProjectCommand(['node_modules/vitest/vitest.mjs', 'run']);
+  else await buildApplication(true);
+  try {
+    if (!(await stat(config.main)).isFile() || !(await stat(config.assets.directory)).isDirectory()) throw new Error();
+  } catch { throw new Error('Compiled Worker or client assets are missing. Run npm run build before using --skip-build.'); }
+  config.observability = { enabled: false, logs: { enabled: false }, traces: { enabled: false } };
+  config.logpush = false;
+  config.preview_urls = false;
+  process.stdout.write(`${options.dryRun ? 'Validating' : options.uploadOnly ? 'Uploading' : 'Deploying'} ${options.target}: ${config.name}\nVariables: ${Object.keys(config.vars).sort().join(', ')}\nSecrets supplied: ${Object.keys(secrets).sort().join(', ') || '(none; existing remote secrets are preserved)'}\n`);
+  await withDeploymentFiles(config, secrets, async (configPath, secretsPath, emptyEnvPath) => {
+    runWrangler([
+      ...(options.uploadOnly ? ['versions', 'upload'] : ['deploy']),
+      '--config', configPath, '--env-file', emptyEnvPath, '--secrets-file', secretsPath,
+      ...(options.dryRun ? ['--dry-run'] : []),
+    ], env.CLOUDFLARE_API_TOKEN ? { CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN } : {});
+  });
+  process.stdout.write(options.dryRun ? 'Dry run passed. Nothing was uploaded or deployed.\n'
+    : options.uploadOnly ? 'Worker version uploaded; the active deployment was not changed.\n'
+      : `Deployment complete: ${config.vars.APP_ORIGIN}\n`);
 }
-deploy().catch(error => { process.stderr.write(`${error instanceof Error ? error.message : 'Release validation or deployment failed.'}\n`); process.exitCode = 1; });
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  if (process.argv.includes('--help')) {
+    process.stdout.write('Usage: npm run deploy -- [--target preview|production] [--config path.jsonc] [--secrets-file path] [--dry-run]\nPreview also supports --upload-only and --skip-build (tests still run).\nPublic variables come from Wrangler config; app secrets come from .env.secrets.<target> and CI secret bindings.\n');
+  } else {
+    deploy(process.argv.slice(2)).catch(error => { process.stderr.write(`${error instanceof Error ? error.message : 'Deployment validation failed.'}\n`); process.exitCode = 1; });
+  }
+}

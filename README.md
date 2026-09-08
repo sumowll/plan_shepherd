@@ -4,7 +4,7 @@ A consumer web application for comparing 2026 ACA Marketplace, short-term medica
 
 Includes structured intake, registry-configured SMART on FHIR patient imports with Atrius/Epic and Cigna defaults, a reviewable anticipated-care draft, provider and medication matching, benefit details, deterministic cost estimates, preliminary eligibility guidance and optional AI intake assistance. It does not recommend plans, specialists or treatments.
 
-**The application runs locally now. Live integrations and real plan results require configuration and a published source catalog.** No credentials, patient records or demonstration plans are bundled. The application has not been deployed or qualified against your production registrations. Your clarified production requirements govern this implementation; the original README is preserved in [ORIGINAL_BRIEF.md](docs/ORIGINAL_BRIEF.md).
+**A hosted preview is live at [plan-shepherd.moonbacare.com](https://plan-shepherd.moonbacare.com). Live integrations and real plan results require configuration and a published source catalog.** No credentials, patient records or demonstration plans are bundled. The preview has not been qualified against your production registrations. Your clarified production requirements govern this implementation; the original README is preserved in [ORIGINAL_BRIEF.md](docs/ORIGINAL_BRIEF.md).
 
 ## Run locally
 
@@ -55,9 +55,20 @@ npm test
 npm run deploy:check
 ```
 
-These checks do not deploy. Production deployment uses `npm run deploy` and requires real service configuration, a provisioned database, reviewed catalog and release record. It verifies actual catalog coverage, runs tests/build, and uploads secrets with the Worker version. Follow [OPERATIONS.md](docs/OPERATIONS.md).
+These checks do not deploy. Deployment uses the public settings committed in [wrangler.preview.jsonc](wrangler.preview.jsonc) or [wrangler.production.jsonc](wrangler.production.jsonc). It never loads local `.env` or `.dev.vars`, and shell variables do not override these public settings.
 
-A hosted preview can be deployed with `npm run deploy:preview` after `npx wrangler login`. [wrangler.preview.jsonc](wrangler.preview.jsonc) targets the Moonba account and [plan-shepherd.moonbacare.com](https://plan-shepherd.moonbacare.com). It enables manual intake and bundled county lookup, with patient connections, AI and release approvals disabled. No catalog database or integration secrets are attached, so real plan results are unavailable. Run `npm run deploy:preview:check` to build and validate this configuration without publishing. See [preview deployment](docs/OPERATIONS.md#hosted-preview) for Cloudflare Git builds and deployment settings.
+The preview enables manual intake and bundled county lookup, with patient connections, AI and release approvals disabled and no catalog database. Its deployment can also upload application secrets from the optional ignored `.env.secrets.preview` file or recognized secret variables in the shell/CI environment. Supplying secrets does not enable integrations. For a local preview deployment:
+
+```sh
+npx wrangler login
+cp .env.secrets.example .env.secrets.preview
+chmod 600 .env.secrets.preview
+# Uncomment and fill only the application secrets you intend to upload.
+npm run deploy:preview:check
+npm run deploy:preview
+```
+
+The secret template contains only comments; skip creating a secret file when none are needed. Production uses `npm run deploy:production:check`, then `npm run deploy`, with `wrangler.production.jsonc` and optional `.env.secrets.production`. It requires configured services, an actual database ID, reviewed catalog, credentials and a release record before publication. The deployment checks actual catalog coverage and runs tests/build. See [deployment settings and secrets](docs/OPERATIONS.md#deployment-configuration-and-secrets) and [Cloudflare Git build commands](docs/OPERATIONS.md#hosted-preview).
 
 `npm run build` and `npm run typecheck` generate the ignored `worker-configuration.d.ts` before compiling, so fresh checkouts do not need a manual `cf:types` step.
 

@@ -79,7 +79,7 @@ export function connectorRedirectUri(env: Record<string, unknown>, id: string, o
   let redirect: URL;
   try { redirect = new URL(configured); }
   catch { throw new AppError('connector_configuration_invalid', `${name} callback address must match this application.`, 503); }
-  const allowedPath = redirect.pathname === `/oauth/callback/${id}` || redirect.pathname === definition.legacyCallbackPath;
+  const allowedPath = redirect.pathname === `/oauth/callback/${id}` || redirect.pathname === `/auth/callback/${id}` || redirect.pathname === definition.legacyCallbackPath;
   if (redirect.origin !== canonicalOrigin || !['http:', 'https:'].includes(redirect.protocol) || !allowedPath || redirect.username || redirect.password || redirect.search || redirect.hash) {
     throw new AppError('connector_configuration_invalid', `${name} callback address must match this application.`, 503);
   }

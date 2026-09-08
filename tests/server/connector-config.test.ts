@@ -57,9 +57,19 @@ describe('registered redirect URI', () => {
     expect(connectorRedirectUri({ APP_ENV: 'development', EPIC_REDIRECT_URI: 'http://localhost:3000/auth/callback' }, 'atrius', 'http://localhost:3000')).toBe('http://localhost:3000/auth/callback');
   });
 
+  it('resolves the BCH registration and its exact registered callback', () => {
+    const settings = { ...env, APP_ORIGIN: 'https://fhir.moonbacare.com', BCH_CLIENT_ID: 'synthetic-bch-client' };
+    expect(connectorConfig(settings, 'bch')).toMatchObject({
+      base: 'https://fhir.bch.org/fhir', clientId: settings.BCH_CLIENT_ID, configured: true, enabled: true,
+    });
+    expect(connectorRedirectUri(settings, 'bch', 'https://request.example')).toBe('https://fhir.moonbacare.com/auth/callback/bch');
+    expect(connectorRedirectUri({ ...settings, BCH_REDIRECT_URI: `${settings.APP_ORIGIN}/oauth/callback/bch` }, 'bch', settings.APP_ORIGIN)).toBe(`${settings.APP_ORIGIN}/oauth/callback/bch`);
+  });
+
   it.each([
     'https://attacker.example/oauth/callback/atrius',
     'https://app.example/oauth/callback/cigna',
+    'https://app.example/auth/callback/bch',
     'https://app.example/arbitrary',
     'https://user:password@app.example/oauth/callback/atrius',
     'https://app.example/oauth/callback/atrius?redirect=https://other.example',
