@@ -103,7 +103,9 @@ Imports stage a complete release and change one active pointer after schema/coun
 
 ## Hosted preview
 
-The `wrangler.preview.jsonc` configuration targets Worker `plan-shepherd` in the Moonba account at `https://plan-shepherd.late-mouse-6954.workers.dev`, matching the connected Cloudflare Git build. It uses production browser security headers and API rate limiting, with patient connections, AI and production release approvals explicitly disabled. It attaches no integration secrets or D1 database. Manual intake and bundled county lookup work; catalog searches report missing sources and no plans. This is a preview for evaluating the interface, and `/api/status` reports `productionReady: false`.
+The `wrangler.preview.jsonc` configuration targets Worker `plan-shepherd` in the Moonba account at `https://plan-shepherd.moonbacare.com`, matching the connected Cloudflare Git build. It uses production browser security headers and API rate limiting, with patient connections, AI and production release approvals explicitly disabled. It attaches no integration secrets or D1 database. Manual intake and bundled county lookup work; catalog searches report missing sources and no plans. This is a preview for evaluating the interface, and `/api/status` reports `productionReady: false`.
+
+`APP_ORIGIN` sets the trusted application origin and OAuth callbacks; it does not create a public hostname. The preview config also declares `plan-shepherd.moonbacare.com` as a Worker custom domain, letting Cloudflare manage its DNS record and HTTPS certificate. The old workers.dev address is disabled to keep browser requests on the configured origin. Keep this config synchronized with dashboard changes; deployment replaces dashboard variables with the configured values.
 
 Using Node.js 24:
 

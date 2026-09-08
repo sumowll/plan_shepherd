@@ -6,7 +6,8 @@
   "no_bundle": true,
   "compatibility_date": "2026-09-06",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": true,
+  "workers_dev": false,
+  "routes": [{ "pattern": "plan-shepherd.moonbacare.com", "custom_domain": true }],
   "preview_urls": false,
   "assets": {
     "directory": "./dist/client",
@@ -19,7 +20,7 @@
   "ratelimits": [{ "name": "API_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }],
   "vars": {
     "APP_ENV": "production",
-    "APP_ORIGIN": "https://plan-shepherd.late-mouse-6954.workers.dev",
+    "APP_ORIGIN": "https://plan-shepherd.moonbacare.com",
     "PLAN_YEAR": "2026",
     "PATIENT_PROCESSING_APPROVED": "false",
     "AI_PROCESSING_APPROVED": "false",
