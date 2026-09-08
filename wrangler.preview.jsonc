@@ -1,13 +1,13 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "plan-shepherd",
+  "name": "plan-shepherd-preview",
   "account_id": "ab48bbf30b3343b679131327ae3c793f",
   "main": "./dist/plan_shepherd/index.js",
   "no_bundle": true,
   "compatibility_date": "2026-09-06",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
-  "routes": [{ "pattern": "plan-shepherd.moonbacare.com", "custom_domain": true }],
+  "routes": [{ "pattern": "plan-shepherd-preview.moonbacare.com", "custom_domain": true }],
   "preview_urls": false,
   "assets": {
     "directory": "./dist/client",
@@ -20,7 +20,7 @@
   "ratelimits": [{ "name": "API_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }],
   "vars": {
     "APP_ENV": "production",
-    "APP_ORIGIN": "https://plan-shepherd.moonbacare.com",
+    "APP_ORIGIN": "https://plan-shepherd-preview.moonbacare.com",
     "PLAN_YEAR": "2026",
     // "ATRIUS_CLIENT_ID":,
     // "BCH_CLIENT_ID":,
