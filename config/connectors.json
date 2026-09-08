@@ -1,0 +1,19 @@
+[
+  {
+    "id": "atrius",
+    "name": "Atrius Health",
+    "kind": "provider",
+    "scopeProfile": "epic",
+    "fhirBaseUrl": "https://iatrius.atriushealth.org/FHIR/api/FHIR/R4",
+    "legacyEnvPrefixes": ["ATRIUS", "EPIC"],
+    "legacyCallbackPath": "/auth/callback"
+  },
+  {
+    "id": "cigna",
+    "name": "Cigna",
+    "kind": "payer",
+    "scopeProfile": "cigna",
+    "legacyEnvPrefixes": ["CIGNA"],
+    "testFhirBaseUrls": ["https://fhir.cigna.com/PatientAccess/v1-devportal"]
+  }
+]

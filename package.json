@@ -7,7 +7,7 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "WRANGLER_LOG_PATH=.cache/wrangler WRANGLER_SEND_METRICS=false vite --host 127.0.0.1",
+    "dev": "node --import tsx scripts/dev.ts",
     "build": "tsc --noEmit && WRANGLER_LOG_PATH=.cache/wrangler WRANGLER_SEND_METRICS=false vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -16,11 +16,14 @@
     "cf:types": "WRANGLER_LOG_PATH=.cache/wrangler WRANGLER_SEND_METRICS=false wrangler types --include-runtime false",
     "deploy:check": "npm run build && WRANGLER_LOG_PATH=.cache/wrangler WRANGLER_SEND_METRICS=false wrangler deploy --dry-run",
     "deploy": "node --import tsx scripts/deploy.ts",
+    "deploy:preview": "npm run build && WRANGLER_LOG_PATH=.cache/wrangler WRANGLER_SEND_METRICS=false wrangler deploy --config wrangler.preview.jsonc",
+    "deploy:preview:check": "npm run build && WRANGLER_LOG_PATH=.cache/wrangler WRANGLER_SEND_METRICS=false wrangler deploy --config wrangler.preview.jsonc --dry-run",
     "verify:production": "node --import tsx scripts/verify-production.ts",
     "catalog:import": "node --import tsx scripts/import-catalog.ts",
     "catalog:fetch": "node --import tsx scripts/fetch-catalog.ts",
     "db:migrate:local": "WRANGLER_LOG_PATH=.cache/wrangler WRANGLER_SEND_METRICS=false wrangler d1 migrations apply plan-shepherd-catalog --local",
     "env:prepare": "node --import tsx scripts/prepare-env.ts",
+    "connectors:check": "node --import tsx scripts/check-connectors.ts",
     "deploy:production:check": "node --import tsx scripts/deploy.ts --dry-run",
     "db:migrate:production": "node --import tsx scripts/migrate-production.ts",
     "readiness:template": "node --import tsx scripts/readiness-template.ts"

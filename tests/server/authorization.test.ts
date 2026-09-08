@@ -160,7 +160,7 @@ describe('callback and API limits', () => {
     const upstream = vi.fn(); vi.stubGlobal('fetch', upstream);
     expect((await api('/api/connectors/atrius/resource', {}, '')).status).toBe(401);
     expect((await api('/api/connectors/atrius/token', { code: 'x', verifier: 'too-short' })).status).toBe(400);
-    expect((await api('/api/connectors/unknown/token', { code: 'x', verifier: 'v'.repeat(43) })).status).toBe(400);
+    expect((await api('/api/connectors/unknown/token', { code: 'x', verifier: 'v'.repeat(43) })).status).toBe(404);
     expect(upstream).not.toHaveBeenCalled();
   });
 

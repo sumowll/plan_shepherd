@@ -98,7 +98,7 @@ export interface DrugBenefitPhase {
   patientOopCreditBps: number; additionalOopCreditBps: number;
 }
 export interface DrugBenefitPhases { phases: DrugBenefitPhase[]; source: SourceRef }
-export interface ConnectorStatus { id: 'atrius' | 'cigna'; name: string; configured: boolean; enabled: boolean; reason?: string }
+export interface ConnectorStatus { id: string; name: string; kind: 'provider' | 'payer'; configured: boolean; enabled: boolean; reason?: string; testEnvironment?: boolean }
 export interface AppStatus { year: number; connectors: ConnectorStatus[]; ai: { enabled: boolean; reason?: string }; catalog: { available: boolean; releaseId: string | null; planCount: number }; productionReady: boolean; issues: string[] }
 export interface ChatMessage { role: 'user' | 'assistant'; content: string }
 export interface AiProposal { id: string; kind: 'expected_care' | 'provider' | 'medication'; value: Record<string, unknown>; evidenceIds: string[]; explanation: string }

@@ -1,33 +1,88 @@
 import { z } from 'zod';
-import { connectorConfig, safeHttpsUrl, setting, type ConnectorId } from '../server/config';
+import { connectorConfig, connectorRedirectUri, connectorScopesAllowed, safeHttpsUrl, setting, type ConnectorId } from '../server/config';
 import { AppError, boundedJson, safeFetch } from '../server/http';
+import { importResourceSchema, type ScopeProfile } from '../shared/connectors';
 import { signReceipt, verifyReceipt } from './receipt';
 
 const endpointsSchema = z.object({ authorization_endpoint: z.string().url(), token_endpoint: z.string().url() });
+const capabilitySchema = z.object({
+  resourceType: z.enum(['CapabilityStatement', 'Conformance']),
+  rest: z.array(z.object({
+    mode: z.string().optional(),
+    security: z.object({ extension: z.array(z.object({
+      url: z.string(), extension: z.array(z.object({ url: z.string(), valueUri: z.string().optional() })).optional(),
+    })).optional() }).optional(),
+  })),
+});
+function capabilityEndpoints(data: unknown): unknown {
+  const capability = capabilitySchema.safeParse(data);
+  if (!capability.success) return undefined;
+  for (const rest of capability.data.rest) {
+    if (rest.mode === 'client') continue;
+    for (const extension of rest.security?.extension ?? []) {
+      if (!['http://fhir-registry.smarthealthit.org/StructureDefinition/oauth-uris', 'http://hl7.org/fhir/StructureDefinition/oauth-uris'].includes(extension.url)) continue;
+      const authorization = extension.extension?.filter(value => value.url === 'authorize') ?? [];
+      const token = extension.extension?.filter(value => value.url === 'token') ?? [];
+      if (authorization.length === 1 && token.length === 1) return { authorization_endpoint: authorization[0].valueUri, token_endpoint: token[0].valueUri };
+    }
+  }
+  return undefined;
+}
 export async function discoverConnector(env: Record<string, unknown>, id: ConnectorId) {
   const config = connectorConfig(env, id);
-  if (!config.enabled) throw new AppError('connector_not_configured', 'This connection is not enabled. You can enter your information manually.', 503);
+  if (!config.enabled) throw new AppError('connector_not_configured', config.unavailableReason ?? 'This connection is not enabled.', 503);
   if (config.authorizationUrl && config.tokenUrl) return config;
-  const response = await safeFetch(`${config.base}/.well-known/smart-configuration`, { headers: { Accept: 'application/json' } });
+  let response = await safeFetch(`${config.base}/.well-known/smart-configuration`, { headers: { Accept: 'application/json' } });
+  let fromCapability = false;
+  // Older SMART servers publish OAuth URIs only in their FHIR CapabilityStatement.
+  // Do not mask outages or malformed discovery documents by silently changing sources.
+  if (response.status === 404 || response.status === 405) {
+    await response.body?.cancel();
+    response = await safeFetch(`${config.base}/metadata`, { headers: { Accept: 'application/fhir+json, application/json' } });
+    fromCapability = true;
+  }
   if (!response.ok) throw new AppError('discovery_failed', 'The provider’s authorization settings could not be retrieved.', 502);
-  const discovery = endpointsSchema.parse(await boundedJson(response, 64000));
-  return { ...config, authorizationUrl: safeHttpsUrl(discovery.authorization_endpoint).href, tokenUrl: safeHttpsUrl(discovery.token_endpoint).href };
+  const data = await boundedJson(response, fromCapability ? 2 * 1024 * 1024 : 64000);
+  const discovery = endpointsSchema.safeParse(fromCapability ? capabilityEndpoints(data) : data);
+  if (!discovery.success) throw new AppError('discovery_failed', 'The provider did not publish its sign-in settings. This connection’s API address or sign-in configuration needs attention.', 502);
+  try { return { ...config, authorizationUrl: safeHttpsUrl(discovery.data.authorization_endpoint).href, tokenUrl: safeHttpsUrl(discovery.data.token_endpoint).href }; }
+  catch { throw new AppError('discovery_failed', 'The provider published unsupported authorization endpoints. Check the connection configuration.', 502); }
+}
+export function grantedConnectorScopesAllowed(scopeProfile: ScopeProfile, scopes: string): boolean {
+  const values = scopes.trim().split(/\s+/);
+  // Epic returns registered API operations; Cigna may return read/search grants.
+  // The token must still identify a patient, and every resource remains patient-bound.
+  return !!scopes.trim() && values.every(scope => connectorScopesAllowed(scopeProfile, scope)
+    || scopeProfile === 'epic' && /^[A-Z][A-Za-z]+\.(?:read|search)$/.test(scope)
+    || scopeProfile === 'cigna' && (scope === 'read' || scope === 'search'));
 }
 export const tokenRequestSchema = z.object({ code: z.string().min(1).max(4096), verifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/) });
 export async function exchangeCode(env: Record<string, unknown>, id: ConnectorId, input: z.infer<typeof tokenRequestSchema>, origin: string) {
+  const redirectUri = connectorRedirectUri(env, id, origin);
   const config = await discoverConnector(env, id);
-  const body = new URLSearchParams({ grant_type: 'authorization_code', code: input.code, redirect_uri: `${origin}/oauth/callback/${id}`, client_id: config.clientId, code_verifier: input.verifier });
-  const response = await safeFetch(config.tokenUrl, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body });
+  const body = new URLSearchParams({ grant_type: 'authorization_code', code: input.code, redirect_uri: redirectUri, code_verifier: input.verifier });
+  const headers = new Headers({ 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' });
+  if (config.tokenAuthMethod === 'client_secret_basic') {
+    // RFC 6749 section 2.3.1 requires form encoding each credential before Base64.
+    const formEncode = (value: string) => new URLSearchParams({ value }).toString().slice('value='.length);
+    headers.set('Authorization', `Basic ${btoa(`${formEncode(config.clientId)}:${formEncode(config.clientSecret)}`)}`);
+  } else {
+    body.set('client_id', config.clientId);
+    if (config.tokenAuthMethod === 'client_secret_post') body.set('client_secret', config.clientSecret);
+  }
+  const response = await safeFetch(config.tokenUrl, { method: 'POST', headers, body });
   if (!response.ok) throw new AppError('authorization_failed', 'Authorization was not completed. Please reconnect to your provider.', 401);
+  // Cigna identity scopes support its registration. ID tokens are discarded;
+  // patient authorization still comes exclusively from the token response's patient context.
   const token = z.object({ access_token: z.string().min(1).max(12000), token_type: z.string(), expires_in: z.number().positive().optional(), patient: z.string().max(250).optional(), scope: z.string().optional() }).parse(await boundedJson(response, 64000));
   if (token.token_type.toLowerCase() !== 'bearer' || !token.patient || !/^[A-Za-z0-9.-]+$/.test(token.patient)) throw new AppError('missing_patient_context', 'The approved connection must return a SMART patient context. Check its registration and scopes.', 502);
-  const granted = token.scope ?? config.scopes;
-  if (!granted.split(/\s+/).every(s => s === 'launch/patient' || /^patient\/(?:\*|[A-Za-z]+)\.(?:read|rs|r|s)$/.test(s))) throw new AppError('unsafe_scope', 'This connection returned permissions outside the patient read-only registration.', 502);
+  const granted = (token.scope ?? config.scopes).trim().split(/\s+/).join(' ');
+  if (!grantedConnectorScopesAllowed(config.scopeProfile, granted)) throw new AppError('unsafe_scope', 'This connection returned permissions outside its supported patient read and identity scopes.', 502);
   const expiresIn = token.expires_in ?? 300;
   const receipt = await signReceipt(setting(env, 'SESSION_SIGNING_KEY'), id, token.patient, token.access_token, expiresIn);
   return { accessToken: token.access_token, patientId: token.patient, expiresIn, scopes: granted, receipt };
 }
-export const resourceRequestSchema = z.object({ receipt: z.string().min(1).max(4096), patientId: z.string().regex(/^[A-Za-z0-9.-]{1,250}$/), resource: z.enum(['Patient', 'Encounter', 'ExplanationOfBenefit', 'MedicationRequest', 'MedicationDispense', 'Condition']), next: z.string().max(8000).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
+export const resourceRequestSchema = z.object({ receipt: z.string().min(1).max(4096), patientId: z.string().regex(/^[A-Za-z0-9.-]{1,250}$/), resource: importResourceSchema, next: z.string().max(8000).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
 export function assertPatientOwnership(page: unknown, patientId: string, base?: string, expectedResource?: string): void {
   if (!page || typeof page !== 'object') throw new AppError('invalid_fhir', 'The provider returned an invalid FHIR response.', 502);
   const data = page as Record<string, unknown>;
@@ -72,6 +127,7 @@ export async function getResourcePage(env: Record<string, unknown>, id: Connecto
   const config = connectorConfig(env, id);
   if (!config.enabled) throw new AppError('connector_not_configured', 'This connection is not enabled.', 503);
   await verifyReceipt(setting(env, 'SESSION_SIGNING_KEY'), input.receipt, id, input.patientId, accessToken);
+  if (!config.resources.includes(input.resource)) throw new AppError('resource_unavailable', 'This resource is not enabled for the approved connection.', 422);
   const target = allowedResourceUrl(config.base, input);
   const response = await safeFetch(target, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/fhir+json' } });
   if (response.status === 401) throw new AppError('session_expired', 'Your provider authorization expired. Reconnect to continue.', 401);

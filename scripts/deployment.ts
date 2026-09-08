@@ -2,10 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { RUNTIME_KEYS } from './env';
+import { runtimeEnvironmentKeys } from './env';
 
 export const projectRoot = fileURLToPath(new URL('../', import.meta.url));
-const SECRET_KEYS = new Set(['AI_API_KEY', 'SESSION_SIGNING_KEY']);
 export function deploymentEnvironment(env: Record<string, string>): NodeJS.ProcessEnv {
   return { ...process.env, ...env, WRANGLER_LOG_PATH: join(projectRoot, '.cache/wrangler'), WRANGLER_SEND_METRICS: 'false' };
 }
@@ -15,6 +14,8 @@ export function runWrangler(args: string[], env: Record<string, string>): void {
 }
 /** A private temporary configuration resolves paths explicitly and is removed even on failure. */
 export async function withProductionConfig<T>(env: Record<string, string>, action: (configPath: string, secretsPath: string) => Promise<T>, options: { built?: boolean; approvedReleaseId?: string } = {}): Promise<T> {
+  const { runtimeKeys, secretKeys } = runtimeEnvironmentKeys(env);
+  const secretBindings = new Set(secretKeys);
   if (!/^[a-f\d]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID ?? '')) throw new Error('A valid CLOUDFLARE_ACCOUNT_ID is required.');
   if (!/^[a-f\d-]{36}$/i.test(env.CATALOG_DATABASE_ID ?? '') || /^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(env.CATALOG_DATABASE_ID)) throw new Error('A provisioned CATALOG_DATABASE_ID is required.');
   const source = options.built ? join(projectRoot, 'dist/plan_shepherd/wrangler.json') : join(projectRoot, 'wrangler.jsonc');
@@ -26,7 +27,7 @@ export async function withProductionConfig<T>(env: Record<string, string>, actio
   config.name = env.CLOUDFLARE_WORKER_NAME || 'plan-shepherd';
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(config.name)) throw new Error('Invalid CLOUDFLARE_WORKER_NAME.');
   config.d1_databases = [{ binding: 'CATALOG', database_name: 'plan-shepherd-catalog', database_id: env.CATALOG_DATABASE_ID, migrations_dir: join(projectRoot, 'migrations') }];
-  config.vars = Object.fromEntries(RUNTIME_KEYS.filter(key => !SECRET_KEYS.has(key) && !key.startsWith('PRODUCTION_') && env[key] !== undefined).map(key => [key, env[key]]));
+  config.vars = Object.fromEntries(runtimeKeys.filter(key => !secretBindings.has(key) && !['PRODUCTION_RELEASE_APPROVED', 'PRODUCTION_CATALOG_RELEASE_ID'].includes(key) && env[key] !== undefined).map(key => [key, env[key]]));
   config.vars.APP_ENV = 'production'; config.vars.PLAN_YEAR = '2026';
   config.vars.PRODUCTION_RELEASE_APPROVED = options.approvedReleaseId ? 'true' : 'false';
   config.vars.PRODUCTION_CATALOG_RELEASE_ID = options.approvedReleaseId ?? '';
@@ -41,7 +42,7 @@ export async function withProductionConfig<T>(env: Record<string, string>, actio
   try {
     const configPath = join(directory, 'wrangler.json'); const secretsPath = join(directory, 'secrets.json');
     await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
-    await writeFile(secretsPath, JSON.stringify(Object.fromEntries([...SECRET_KEYS].filter(key => !!env[key]).map(key => [key, env[key]]))), { mode: 0o600 });
+    await writeFile(secretsPath, JSON.stringify(Object.fromEntries(secretKeys.filter(key => env[key] !== undefined).map(key => [key, env[key]]))), { mode: 0o600 });
     return await action(configPath, secretsPath);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

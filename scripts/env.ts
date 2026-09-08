@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { connectorEnvironmentKeys } from '../src/server/connector-registry';
 export function parseEnv(text: string): Record<string, string> {
   const values: Record<string, string> = {};
   for (const line of text.split(/\r?\n/)) {
@@ -20,4 +21,16 @@ export async function readEnvironment(path = '.env'): Promise<Record<string, str
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   return { ...file, ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) };
 }
-export const RUNTIME_KEYS = ['APP_ENV','APP_ORIGIN','PLAN_YEAR','PATIENT_PROCESSING_APPROVED','AI_PROCESSING_APPROVED','AI_RETENTION_VERIFIED','SESSION_SIGNING_KEY','ATRIUS_CLIENT_ID','ATRIUS_FHIR_BASE_URL','ATRIUS_AUTHORIZATION_URL','ATRIUS_TOKEN_URL','ATRIUS_SCOPES','ATRIUS_RESPONSE_MODE','CIGNA_CLIENT_ID','CIGNA_FHIR_BASE_URL','CIGNA_AUTHORIZATION_URL','CIGNA_TOKEN_URL','CIGNA_SCOPES','CIGNA_RESPONSE_MODE','AI_BASE_URL','AI_API_KEY','AI_MODEL','PRODUCTION_RELEASE_APPROVED','PRODUCTION_CATALOG_RELEASE_ID'] as const;
+export const RUNTIME_KEYS = ['APP_ENV','APP_ORIGIN','PLAN_YEAR','PATIENT_PROCESSING_APPROVED','AI_PROCESSING_APPROVED','AI_RETENTION_VERIFIED','SESSION_SIGNING_KEY','CONNECTOR_REGISTRY','AI_BASE_URL','AI_API_KEY','AI_MODEL','PRODUCTION_RELEASE_APPROVED','PRODUCTION_CATALOG_RELEASE_ID'] as const;
+
+/** Registry references extend the binding allowlist; unrelated shell secrets stay tooling-only. */
+export function runtimeEnvironmentKeys(env: Record<string, unknown>): { runtimeKeys: string[]; secretKeys: string[] } {
+  if (typeof env.CONNECTOR_REGISTRY === 'string' && Buffer.byteLength(env.CONNECTOR_REGISTRY, 'utf8') > 5120) {
+    throw new Error('CONNECTOR_REGISTRY exceeds the Worker variable size limit. Put large registries in config/connectors.json and remove the environment override.');
+  }
+  const connectorKeys = connectorEnvironmentKeys(env);
+  return {
+    runtimeKeys: [...new Set([...RUNTIME_KEYS, ...connectorKeys.runtimeKeys, ...connectorKeys.secretKeys])],
+    secretKeys: [...new Set(['AI_API_KEY', 'SESSION_SIGNING_KEY', ...connectorKeys.secretKeys])],
+  };
+}

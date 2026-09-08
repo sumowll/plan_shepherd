@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { readEnvironment } from './env';
-import { connectorConfig, aiEnabled, safeHttpsUrl } from '../src/server/config';
+import { connectorConfig, connectorRedirectUri, aiEnabled, safeHttpsUrl } from '../src/server/config';
+import { connectorRegistry } from '../src/server/connector-registry';
 import { STATES } from '../src/catalog/schema';
 import { PLAN_FAMILIES } from '../src/shared/contracts';
 
@@ -15,13 +16,25 @@ export const readinessSchema = z.object({
 });
 export async function verifyProduction(env: Record<string, string>, readiness: unknown): Promise<string[]> {
   const failures: string[] = [];
+  let origin: string | undefined;
   if (env.APP_ENV !== 'production') failures.push('APP_ENV must be production.');
-  try { const origin = safeHttpsUrl(env.APP_ORIGIN ?? ''); if (origin.pathname !== '/' || origin.origin !== env.APP_ORIGIN) throw new Error(); }
+  try { const configured = safeHttpsUrl(env.APP_ORIGIN ?? ''); if (configured.pathname !== '/' || configured.origin !== env.APP_ORIGIN) throw new Error(); origin = configured.origin; }
   catch { failures.push('APP_ORIGIN must be a public HTTPS origin without a path or trailing slash.'); }
   try { safeHttpsUrl(env.AI_BASE_URL || 'https://api.openai.com/v1'); } catch { failures.push('AI_BASE_URL must be an approved public HTTPS endpoint.'); }
   if (env.PLAN_YEAR !== '2026') failures.push('PLAN_YEAR must be 2026.');
   if (env.PATIENT_PROCESSING_APPROVED !== 'true') failures.push('Patient processing approval is not configured.');
-  for (const id of ['atrius','cigna'] as const) { try { if (!connectorConfig(env, id).enabled) failures.push(`${id} requires approved production configuration.`); } catch { failures.push(`${id} has invalid configuration.`); } }
+  let connectors: ReturnType<typeof connectorRegistry> = [];
+  try { connectors = connectorRegistry(env); }
+  catch { failures.push('The connector registry has invalid configuration.'); }
+  for (const { id, enabled } of connectors) {
+    if (enabled === false) continue;
+    try { if (!connectorConfig(env, id).enabled) failures.push(`${id} requires approved production configuration.`); }
+    catch { failures.push(`${id} has invalid configuration.`); }
+    if (origin) {
+      try { connectorRedirectUri(env, id, origin); }
+      catch { failures.push(`${id} callback must match the production application origin and a supported callback path.`); }
+    }
+  }
   if (!aiEnabled(env)) failures.push('An approved AI model and retention configuration are required.');
   if (!z.uuid().safeParse(env.CATALOG_DATABASE_ID).success || env.CATALOG_DATABASE_ID === '00000000-0000-0000-0000-000000000000') failures.push('A provisioned catalog database ID is required.');
   if (!/^[a-f\d]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID ?? '') || !env.CLOUDFLARE_API_TOKEN) failures.push('Cloudflare deployment credentials are required.');

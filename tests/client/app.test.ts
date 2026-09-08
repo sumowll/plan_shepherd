@@ -9,7 +9,7 @@ import type { AppStatus, AssistantReply, CatalogSearch, ComparisonInput, Compari
 
 const oauth = vi.hoisted(() => ({ connect: vi.fn() }));
 vi.mock('../../src/client/oauth', () => ({ connectPatient: oauth.connect, resetPatientSession: () => window.dispatchEvent(new CustomEvent('plan-shepherd:clear-session')) }));
-const status: AppStatus = { year: 2026, connectors: [{ id: 'atrius', name: 'Atrius Health', configured: true, enabled: true }, { id: 'cigna', name: 'Cigna', configured: false, enabled: false }], ai: { enabled: true }, catalog: { available: false, releaseId: null, planCount: 0 }, productionReady: false, issues: [] };
+const status: AppStatus = { year: 2026, connectors: [{ id: 'atrius', name: 'Atrius Health', kind: 'provider', configured: true, enabled: true }, { id: 'cigna', name: 'Cigna', kind: 'payer', configured: false, enabled: false }], ai: { enabled: true }, catalog: { available: false, releaseId: null, planCount: 0 }, productionReady: false, issues: [] };
 const imported: ImportResult = { providers: [{ id: 'imported-provider', name: 'Imported provider', preferred: false, evidence: [] }], medications: [], events: [], warnings: [], resourcesRead: 2, complete: true, patient: { source: 'Atrius Health', id: 'patient-1', name: 'Test Patient', dateOfBirth: '1980-02-03', evidence: [] } };
 let assistantReply: AssistantReply;
 let catalogRequest: ((input: Record<string, unknown>) => Promise<CatalogSearch>) | undefined;
@@ -54,6 +54,119 @@ async function importRecords(again = false) {
 }
 const publicSource: SourceRef = { id: 'client-fixture', publisher: 'Synthetic test data', url: 'https://example.org/test', retrievedAt: '2026-01-01', version: 'test' };
 function publicPlan(id: string): Plan { return { id, name: `Public plan ${id}`, issuer: 'Synthetic issuer', family: 'aca', year: 2026, state: 'MA', countyFips: ['25017'], status: 'available', effectiveStart: '2026-01-01', effectiveEnd: '2026-12-31', monthlyPremiumCents: 10000, premiumEstimated: false, deductibleCents: 0, oopMaxCents: 200000, drugDeductibleCents: 0, drugOopMaxCents: 200000, benefits: [], providers: [], drugs: [], prices: [], source: publicSource, documentUrls: [], rulesVerified: true, underwritingRequired: false, networkComplete: true, formularyComplete: true }; }
+
+describe('connection availability', () => {
+  it('labels a sandbox as test records while allowing test member sign-in', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: status.connectors.map(connector => connector.id === 'cigna' ? { ...connector, configured: true, enabled: true, testEnvironment: true } : connector) }) } as Response);
+    oauth.connect.mockResolvedValue(imported);
+    render(createElement(App)); goStep('Your care');
+    const testNote = await screen.findByText('Test records only');
+    const sandbox = within(testNote.closest('.connector-card') as HTMLElement);
+    expect(sandbox.getByRole('heading', { name: 'Cigna' })).toBeTruthy();
+    expect(sandbox.getByText('Sign in with a test member account.')).toBeTruthy();
+    expect(screen.getByText('Your provider records')).toBeTruthy();
+    expect(screen.queryByText('Your claims & care history')).toBeNull();
+    const connect = sandbox.getByRole('button', { name: 'Connect account' });
+    expect((connect as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(connect);
+    await screen.findByRole('dialog', { name: 'CONFIRM YOUR RECORDS' });
+    expect(oauth.connect).toHaveBeenCalledWith('cigna');
+  });
+
+  it('retries a failed availability check without clearing entered information and enables account connection', async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('Service unavailable'));
+    oauth.connect.mockResolvedValue(imported);
+    render(createElement(App)); await enterProfile(); goStep('Your care');
+    const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    const retry = await connections.findByRole('button', { name: 'Retry availability' });
+    expect(connections.getByRole('status').textContent).toContain('Connection status unavailable.');
+    expect(connections.queryByRole('button', { name: 'Connect account' })).toBeNull();
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    fireEvent.click(retry);
+    expect((retry as HTMLButtonElement).disabled).toBe(true);
+    expect(connections.queryByRole('button', { name: 'Connect account' })).toBeNull();
+    await act(async () => finish({ ok: true, json: async () => status } as Response));
+    expect((connections.getByRole('button', { name: 'Connect account' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/Connections and catalog availability could not be checked/)).toBeNull();
+    goStep('Your coverage');
+    expect((screen.getByLabelText('Date of birth') as HTMLInputElement).value).toBe('1980-02-03');
+    goStep('Your care');
+    fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
+    await screen.findByRole('dialog', { name: 'CONFIRM YOUR RECORDS' });
+    expect(oauth.connect).toHaveBeenCalledWith('atrius');
+  });
+
+  it('shows the connection reason and rechecks unavailable connectors', async () => {
+    const reason = 'Atrius Health has not enabled this app for patient connections yet.';
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: status.connectors.map(connector => ({ ...connector, configured: false, enabled: false, reason })) }) } as Response);
+    render(createElement(App)); goStep('Your care');
+    const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    await connections.findAllByText(reason);
+    expect(connections.queryByText('OPTIONAL')).toBeNull();
+    fireEvent.click(connections.getByRole('button', { name: 'Retry availability' }));
+    expect((await connections.findByRole('button', { name: 'Connect account' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(connections.queryAllByText(reason)).toHaveLength(0);
+  });
+
+  it('renders arbitrary registry entries and uses their name when confirming records', async () => {
+    const connector = { id: 'hospital-123', name: 'Example University Hospital', kind: 'provider' as const, configured: true, enabled: true };
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: [connector] }) } as Response);
+    oauth.connect.mockResolvedValue({ ...imported, patient: { ...imported.patient!, source: connector.id } });
+    render(createElement(App)); goStep('Your care');
+    await screen.findByRole('heading', { name: connector.name });
+    expect(screen.queryByRole('heading', { name: 'Atrius Health' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Cigna' })).toBeNull();
+    expect(screen.queryByRole('searchbox', { name: 'Search providers and insurers' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Connection pages' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry availability' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
+    const confirmation = within(await screen.findByRole('dialog', { name: 'CONFIRM YOUR RECORDS' }));
+    expect(oauth.connect).toHaveBeenCalledWith(connector.id);
+    expect(confirmation.getByText(`Review the identity supplied by ${connector.name} before adding these records to your session.`)).toBeTruthy();
+  });
+
+  it('bounds a large registry to twenty cards and supports paging and name search', async () => {
+    const connectors = Array.from({ length: 1003 }, (_, index) => ({ id: `hospital-${index + 1}`, name: `Hospital ${String(index + 1).padStart(4, '0')}`, kind: 'provider' as const, configured: true, enabled: true }));
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors }) } as Response);
+    render(createElement(App)); goStep('Your care');
+    const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    await connections.findByRole('heading', { name: 'Hospital 0001' });
+    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(20);
+    expect(connections.getByText('1–20 of 1003 connections')).toBeTruthy();
+    expect((connections.getByRole('button', { name: 'Previous connections' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(connections.getByRole('button', { name: 'Next connections' }));
+    expect(connections.queryByRole('heading', { name: 'Hospital 0001' })).toBeNull();
+    expect(connections.getByRole('heading', { name: 'Hospital 0021' })).toBeTruthy();
+    expect(connections.getByText('21–40 of 1003 connections')).toBeTruthy();
+    const search = connections.getByRole('searchbox', { name: 'Search providers and insurers' });
+    fireEvent.change(search, { target: { value: '  hOsPiTaL 100  ' } });
+    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(4);
+    expect(connections.getByRole('heading', { name: 'Hospital 1003' })).toBeTruthy();
+    expect(connections.queryByRole('navigation', { name: 'Connection pages' })).toBeNull();
+    fireEvent.change(search, { target: { value: 'not a registered name' } });
+    expect(connections.getByText('No providers or insurers match your search.')).toBeTruthy();
+    expect(connections.queryByRole('button', { name: 'Connect account' })).toBeNull();
+    fireEvent.change(search, { target: { value: '' } });
+    expect(connections.getByText('1–20 of 1003 connections')).toBeTruthy();
+    fireEvent.change(search, { target: { value: 'Hospital 002' } });
+    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(10);
+  });
+
+  it('shows loading and empty registry states without inventing connector cards', async () => {
+    let finish!: (response: Response) => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    render(createElement(App)); goStep('Your care');
+    const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    expect(connections.getByRole('status').textContent).toBe('Checking connection availability…');
+    expect(connections.queryByRole('button', { name: 'Connect account' })).toBeNull();
+    await act(async () => finish({ ok: true, json: async () => ({ ...status, connectors: [] }) } as Response));
+    expect(connections.getByRole('status').textContent).toBe('No provider or insurer connections are available yet. You can add your care details below.');
+    expect(connections.queryByRole('heading', { name: 'Atrius Health' })).toBeNull();
+    fireEvent.click(connections.getByRole('button', { name: 'Retry availability' }));
+    expect((await connections.findByRole('button', { name: 'Connect account' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
 
 describe('reimports and complete catalog navigation', () => {
   it('preserves corrected provider/medication details and selections across reimports, invalidating care only when source meaning changes', async () => {

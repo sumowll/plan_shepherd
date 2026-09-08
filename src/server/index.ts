@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { aiEnabled, appOrigin, connectorConfig, setting, type RuntimeEnv } from './config';
+import { aiEnabled, appOrigin, connectorConfig, connectorRedirectUri, setting, type RuntimeEnv } from './config';
+import { connectorDefinition, connectorRegistry } from './connector-registry';
 import { AppError, boundedText, readRequest } from './http';
 import { catalogSearchSchema, comparisonSchema } from './validation';
 import { assistantRequestSchema, runAssistant } from './assistant';
@@ -24,7 +25,7 @@ app.use('*', async (c, next) => {
     if (origin && origin !== appOrigin(c.env, c.req.url)) throw new AppError('origin_forbidden', 'This request must originate from the application.', 403);
     if (c.req.header('Sec-Fetch-Site') === 'cross-site') throw new AppError('origin_forbidden', 'Cross-site requests are not accepted.', 403);
   }
-  if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/oauth/callback/')) {
+  if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/oauth/callback/') || c.req.path === '/auth/callback') {
     const limiter = c.env.API_RATE_LIMITER;
     if (limiter) {
       const ip = c.req.header('CF-Connecting-IP') ?? 'local';
@@ -45,12 +46,20 @@ app.onError((error, c) => {
 app.get('/api/status', async c => {
   let catalog: AppStatus['catalog'] = { available: false, releaseId: null, planCount: 0 };
   try { catalog = await catalogStatus(c.env.CATALOG); } catch { /* A missing local database is an explicit unavailable state. */ }
-  const connectors = (['atrius', 'cigna'] as const).map(id => {
-    try { const config = connectorConfig(c.env, id); return { id, name: config.name, configured: config.configured, enabled: config.enabled, ...(!config.enabled ? { reason: 'Awaiting approved connection configuration.' } : {}) }; }
-    catch { return { id, name: id === 'atrius' ? 'Atrius Health' : 'Cigna', configured: false, enabled: false, reason: 'Connection settings need attention.' }; }
+  const definitions = connectorRegistry(c.env);
+  const activeIds = new Set(definitions.filter(definition => definition.enabled).map(definition => definition.id));
+  const connectors = definitions.map(({ id, name, kind }) => {
+    try {
+      const config = connectorConfig(c.env, id);
+      connectorRedirectUri(c.env, id, appOrigin(c.env, c.req.url));
+      return { id, name: config.name, kind, configured: config.configured, enabled: config.enabled,
+        ...(config.testEnvironment ? { testEnvironment: true } : {}),
+        ...(config.unavailableReason ? { reason: config.unavailableReason } : {}) };
+    }
+    catch (error) { return { id, name, kind, configured: false, enabled: false, reason: error instanceof AppError && error.code === 'connector_configuration_invalid' ? error.message : 'Connection settings need attention.' }; }
   });
   const ai = { enabled: aiEnabled(c.env), ...(!aiEnabled(c.env) ? { reason: 'Awaiting approved AI configuration.' } : {}) };
-  const issues = [...(!catalog.available ? ['Plan data is not published yet.'] : []), ...connectors.filter(x => !x.enabled).map(x => `${x.name} is not connected.`), ...(!ai.enabled ? ['The assistant is not configured.'] : [])];
+  const issues = [...(!catalog.available ? ['Plan data is not published yet.'] : []), ...connectors.filter(x => activeIds.has(x.id) && !x.enabled).map(x => `${x.name} is not connected.`), ...(!ai.enabled ? ['The assistant is not configured.'] : [])];
   const productionReady = setting(c.env, 'APP_ENV') === 'production' && setting(c.env, 'PRODUCTION_RELEASE_APPROVED') === 'true'
     && setting(c.env, 'PRODUCTION_CATALOG_RELEASE_ID') === catalog.releaseId && issues.length === 0;
   return c.json({ year: 2026, connectors, ai, catalog, productionReady, issues } satisfies AppStatus);
@@ -81,16 +90,18 @@ app.post('/api/compare', async c => {
 });
 app.post('/api/assistant', async c => c.json(await runAssistant(c.env, assistantRequestSchema.parse(await readRequest(c.req.raw)))));
 app.get('/api/connectors/:id/authorize', async c => {
-  const id = z.enum(['atrius', 'cigna']).parse(c.req.param('id'));
+  const { id } = connectorDefinition(c.env, c.req.param('id'));
+  const origin = appOrigin(c.env, c.req.url);
+  if (new URL(c.req.url).origin !== origin) throw new AppError('app_origin_mismatch', 'Open the application at its configured address before connecting.', 409);
   const config = await discoverConnector(c.env, id);
-  return c.json({ authorizationUrl: config.authorizationUrl, clientId: config.clientId, scopes: config.scopes, audience: config.base, responseMode: config.responseMode });
+  return c.json({ name: config.name, authorizationUrl: config.authorizationUrl, clientId: config.clientId, scopes: config.scopes, audience: config.base, responseMode: config.responseMode, redirectUri: connectorRedirectUri(c.env, id, origin), resources: config.resources });
 });
 app.post('/api/connectors/:id/token', async c => {
-  const id = z.enum(['atrius', 'cigna']).parse(c.req.param('id'));
+  const { id } = connectorDefinition(c.env, c.req.param('id'));
   return c.json(await exchangeCode(c.env, id, tokenRequestSchema.parse(await readRequest(c.req.raw, 16000)), appOrigin(c.env, c.req.url)));
 });
 app.post('/api/connectors/:id/resource', async c => {
-  const id = z.enum(['atrius', 'cigna']).parse(c.req.param('id'));
+  const { id } = connectorDefinition(c.env, c.req.param('id'));
   const authorization = c.req.header('Authorization') ?? '';
   if (!/^Bearer [^\s]{1,12000}$/.test(authorization)) throw new AppError('authorization_required', 'Connect to your provider before importing records.', 401);
   const input = resourceRequestSchema.parse(await readRequest(c.req.raw, 16000)); const token = authorization.slice(7);
@@ -98,13 +109,20 @@ app.post('/api/connectors/:id/resource', async c => {
   return c.json({ page, ...await authorizeReferences(c.env, id, input.patientId, token, page) });
 });
 app.post('/api/connectors/:id/references', async c => {
-  const id = z.enum(['atrius', 'cigna']).parse(c.req.param('id'));
+  const { id } = connectorDefinition(c.env, c.req.param('id'));
   const authorization = c.req.header('Authorization') ?? '';
   if (!/^Bearer [^\s]{1,12000}$/.test(authorization)) throw new AppError('authorization_required', 'Connect before importing records.', 401);
   return c.json(await getReferences(c.env, id, referenceRequestSchema.parse(await readRequest(c.req.raw, 120000)), authorization.slice(7)));
 });
-app.on(['GET', 'POST'], '/oauth/callback/:id', async c => {
-  const id = z.enum(['atrius', 'cigna']).parse(c.req.param('id'));
+app.on(['GET', 'POST'], ['/oauth/callback/:id', '/auth/callback'], async c => {
+  const definition = c.req.path === '/auth/callback'
+    ? connectorRegistry(c.env).find(entry => entry.legacyCallbackPath === c.req.path)
+    : connectorDefinition(c.env, c.req.param('id'));
+  if (!definition) throw new AppError('connector_not_found', 'This connection is not registered.', 404);
+  const { id } = definition;
+  const callback = new URL(connectorRedirectUri(c.env, id, c.req.url));
+  const received = new URL(c.req.url);
+  if (received.origin !== callback.origin || received.pathname !== callback.pathname) throw new AppError('callback_mismatch', 'The sign-in response arrived at an unexpected callback address.', 400);
   if (c.req.method === 'POST' && c.req.header('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/x-www-form-urlencoded') throw new AppError('content_type', 'The callback requires form data.', 415);
   const params = c.req.method === 'POST' ? new URLSearchParams(await boundedText(new Response(c.req.raw.body, { headers: c.req.raw.headers }), 16000)) : new URL(c.req.url).searchParams;
   const nonce = crypto.randomUUID();
@@ -116,8 +134,20 @@ app.on(['GET', 'POST'], '/oauth/callback/:id', async c => {
 app.get('/api/health', c => c.json({ status: 'ok', version: '1.0.0' }));
 app.all('/api/*', c => c.json({ error: { code: 'not_found', message: 'Endpoint not found.' } }, 404));
 app.get('*', async c => {
+  // Keep local launches on the exact origin registered for OAuth, including host and port.
+  if (c.req.path === '/' && setting(c.env, 'APP_ENV') === 'development') {
+    const origin = appOrigin(c.env, c.req.url);
+    if (new URL(c.req.url).origin !== origin) return c.redirect(`${origin}/`);
+  }
   if (setting(c.env, 'APP_ENV') === 'production') c.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; worker-src 'self' blob:");
-  if (c.req.path.startsWith('/assets/')) c.header('Cache-Control', 'public, max-age=31536000, immutable');
-  return c.env.ASSETS.fetch(c.req.raw);
+  const response = await c.env.ASSETS.fetch(c.req.raw);
+  if (response.ok && c.req.path.startsWith('/assets/') && !response.headers.get('Content-Type')?.includes('text/html')) {
+    c.header('Cache-Control', 'public, max-age=31536000, immutable');
+    c.header('Pragma', undefined);
+  }
+  // Asset responses bypass Hono's response helpers, so apply the request's security headers explicitly.
+  const headers = new Headers(response.headers);
+  c.res.headers.forEach((value, name) => headers.set(name, value));
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 });
 export default app;

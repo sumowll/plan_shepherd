@@ -34,7 +34,15 @@ export async function readRequest(request: Request, limit = 2 * 1024 * 1024): Pr
   }
 }
 export async function safeFetch(url: string | URL, options: RequestInit = {}, timeoutMs = 20000): Promise<Response> {
+  let response: Response;
   try {
-    return await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
+    // workerd versions used by local development reject redirect: 'error' before
+    // sending any request. Manual mode also prevents credentials being forwarded.
+    response = await fetch(url, { ...options, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
   } catch { throw new AppError('upstream_unavailable', 'The connected service did not respond. Please retry.', 502); }
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
+    throw new AppError('upstream_redirect', 'The connected service moved this endpoint. Its connection settings need updating.', 502);
+  }
+  return response;
 }
