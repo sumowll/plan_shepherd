@@ -39,8 +39,20 @@ describe('configuration registry', () => {
 
   it('does not inherit removed legacy integrations when a registry override is supplied', () => {
     expect(connectorRegistry({ ...env, CONNECTOR_REGISTRY: '[]' })).toEqual([]);
-    expect(() => connectorConfig(env, 'atrius')).toThrow('not registered');
-    expect(connectorRegistry({}).map(entry => entry.id)).toEqual(['atrius', 'bch', 'cigna']);
+    expect(() => connectorConfig(env, 'atrius-health')).toThrow('not registered');
+    expect(connectorRegistry({}).map(entry => entry.id)).toEqual(['epic', 'atrius-health', 'bch', 'cigna', 'aetna']);
+  });
+
+  it('preserves declared legacy prefix precedence, including explicit blank credentials and callbacks', () => {
+    const settings = { APP_ORIGIN: env.APP_ORIGIN, CONNECTOR_REGISTRY: [{ id: 'legacy-hospital', name: 'Legacy Hospital', kind: 'provider',
+      fhirBaseUrl: registration.fhirBaseUrl, legacyEnvPrefixes: ['CURRENT', 'LEGACY'],
+    }], LEGACY_CLIENT_ID: 'legacy-client', LEGACY_CLIENT_SECRET: 'legacy-secret',
+      LEGACY_REDIRECT_URI: `${env.APP_ORIGIN}/auth/callback/legacy-hospital` };
+    expect(connectorConfig(settings, 'legacy-hospital')).toMatchObject({ clientId: 'legacy-client', clientSecret: 'legacy-secret' });
+    expect(connectorRedirectUri(settings, 'legacy-hospital', env.APP_ORIGIN)).toBe(settings.LEGACY_REDIRECT_URI);
+    const overrides = { ...settings, CURRENT_CLIENT_ID: '', CURRENT_CLIENT_SECRET: '', CURRENT_REDIRECT_URI: '' };
+    expect(connectorConfig(overrides, 'legacy-hospital')).toMatchObject({ clientId: '', clientSecret: '', configured: false });
+    expect(connectorRedirectUri(overrides, 'legacy-hospital', env.APP_ORIGIN)).toBe(`${env.APP_ORIGIN}/oauth/callback/legacy-hospital`);
   });
 
   it('retains the exact registered spelling after validating the origin and path', () => {

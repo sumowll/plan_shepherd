@@ -9,7 +9,7 @@ export function deploymentEnvironment(env: Record<string, string>): NodeJS.Proce
   // Builds need operating-system settings, not the operator's app credentials or VITE_* values.
   const systemKeys = ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'SYSTEMROOT', 'APPDATA', 'LOCALAPPDATA', 'TMPDIR', 'TMP', 'TEMP', 'CI', 'TERM', 'NO_COLOR', 'FORCE_COLOR', 'LANG'];
   const system = Object.fromEntries(systemKeys.flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
-  return {
+  const childEnvironment: Record<string, string | undefined> = {
     ...system, APP_ENV: 'development', PLAN_YEAR: '2026', PATIENT_PROCESSING_APPROVED: 'false', AI_PROCESSING_APPROVED: 'false',
     CLOUDFLARE_API_TOKEN: '', CLOUDFLARE_API_KEY: '', CLOUDFLARE_EMAIL: '', CLOUDFLARE_ACCOUNT_ID: '', ...env,
     CLOUDFLARE_ENV: '', CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false', CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false',
@@ -17,6 +17,8 @@ export function deploymentEnvironment(env: Record<string, string>): NodeJS.Proce
     WRANGLER_LOG_PATH: join(projectRoot, '.cache/wrangler'), WRANGLER_SEND_METRICS: 'false',
     WRANGLER_WRITE_LOGS: 'false', WRANGLER_LOG_SANITIZE: 'true', WRANGLER_LOG: 'warn',
   };
+  // Wrangler adds required Worker bindings to ProcessEnv; build subprocesses intentionally omit them.
+  return childEnvironment as NodeJS.ProcessEnv;
 }
 export function runWrangler(args: string[], env: Record<string, string>): void {
   const result = spawnSync(process.execPath, [join(projectRoot, 'node_modules/wrangler/bin/wrangler.js'), ...args], { cwd: projectRoot, env: deploymentEnvironment(env), stdio: 'inherit', shell: false });

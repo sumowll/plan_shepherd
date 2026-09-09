@@ -14,8 +14,7 @@
     "kind": "provider",
     "scopeProfile": "epic",
     "fhirBaseUrl": "https://iatrius.atriushealth.org/FHIR/api/FHIR/R4",
-    "legacyEnvPrefixes": ["ATRIUS", "EPIC"],
-    "legacyCallbackPath": "/auth/callback"
+    "legacyEnvPrefixes": ["ATRIUS"]
   },
   {
     "id": "bch",
@@ -37,7 +36,7 @@
     "id": "aetna",
     "name": "Aetna",
     "kind": "payer",
-    "scopeProfile": "aetna",
+    "scopeProfile": "smart",
     "legacyEnvPrefixes": ["AETNA"],
     "testFhirBaseUrls": ["https://fhir.aetna.com/PatientAccess/v1-devportal"]
   }

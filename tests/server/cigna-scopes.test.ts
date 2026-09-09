@@ -31,7 +31,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('Cigna identity scope configuration', () => {
   it('defaults Cigna to the portal scopes while preserving the Atrius default', () => {
     expect(connectorConfig(env, 'cigna')).toMatchObject({ scopes, enabled: true });
-    expect(connectorConfig(env, 'atrius').scopes).toBe('launch/patient patient/*.read');
+    expect(connectorConfig(env, 'atrius-health').scopes).toBe('launch/patient patient/*.read');
   });
 
   it.each([scopes, 'openid fhirUser launch/patient patient/Patient.r patient/ExplanationOfBenefit.rs', 'patient/*.read'])('accepts explicitly configured patient read scopes: %s', configured => {
@@ -43,9 +43,9 @@ describe('Cigna identity scope configuration', () => {
   });
 
   it.each(['openid', 'fhirUser'])('keeps %s unavailable to Atrius configuration and token grants', async identityScope => {
-    expect(() => connectorConfig({ ...env, ATRIUS_SCOPES: `${identityScope} patient/*.read` }, 'atrius')).toThrow();
+    expect(() => connectorConfig({ ...env, ATRIUS_SCOPES: `${identityScope} patient/*.read` }, 'atrius-health')).toThrow();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ...tokenResponse, scope: `${identityScope} patient/*.read` })));
-    await expect(exchangeCode(env, 'atrius', exchangeInput, env.APP_ORIGIN)).rejects.toMatchObject({ code: 'unsafe_scope' });
+    await expect(exchangeCode(env, 'atrius-health', exchangeInput, env.APP_ORIGIN)).rejects.toMatchObject({ code: 'unsafe_scope' });
   });
 
   it.each([undefined, 'openid fhirUser patient/Patient.r patient/ExplanationOfBenefit.rs'])('provides default or configured scopes to the authorization flow: %s', async configured => {
@@ -77,7 +77,7 @@ describe('Cigna granted scopes and patient binding', () => {
     expect(JSON.stringify(result)).not.toContain('caregiver');
     await expect(verifyReceipt(secret, result.receipt, 'cigna', patientId, accessToken)).resolves.toBeUndefined();
     for (const [connector, patient, bearer] of [
-      ['atrius', patientId, accessToken], ['cigna', 'another-patient', accessToken], ['cigna', patientId, 'another-token'],
+      ['atrius-health', patientId, accessToken], ['cigna', 'another-patient', accessToken], ['cigna', patientId, 'another-token'],
     ]) await expect(verifyReceipt(secret, result.receipt, connector, patient, bearer)).rejects.toMatchObject({ code: 'invalid_session' });
     const [url, options] = upstream.mock.calls[0] as [string, RequestInit];
     expect(String(url)).toBe(env.CIGNA_TOKEN_URL);

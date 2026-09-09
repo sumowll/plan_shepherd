@@ -24,7 +24,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('server-side authorization code exchange', () => {
   it.each(['none', 'client_secret_basic', 'client_secret_post'])('sends exactly one configured authentication method: %s', method => {
     const fetch = vi.fn().mockResolvedValue(json(token)); vi.stubGlobal('fetch', fetch);
-    return exchangeCode({ ...env, EPIC_CLIENT_ID: 'client:with space', EPIC_CLIENT_SECRET: 'secret:+/é', EPIC_TOKEN_AUTH_METHOD: method, EPIC_REDIRECT_URI: 'https://app.example/auth/callback' }, 'atrius', input, env.APP_ORIGIN).then(result => {
+    return exchangeCode({ ...env, EPIC_CLIENT_ID: 'client:with space', EPIC_CLIENT_SECRET: 'secret:+/é', EPIC_TOKEN_AUTH_METHOD: method, EPIC_REDIRECT_URI: 'https://app.example/auth/callback' }, 'epic', input, env.APP_ORIGIN).then(result => {
       const [target, options] = fetch.mock.calls[0] as [string, RequestInit];
       const body = new URLSearchParams(String(options.body));
       const headers = new Headers(options.headers);
@@ -58,30 +58,30 @@ describe('server-side authorization code exchange', () => {
 
   it('never sends an authorization code when the callback or secret is misconfigured', async () => {
     const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
-    await expect(exchangeCode({ ...env, EPIC_REDIRECT_URI: 'https://other.example/auth/callback' }, 'atrius', input, env.APP_ORIGIN)).rejects.toMatchObject({ code: 'connector_configuration_invalid' });
-    await expect(exchangeCode({ ...env, EPIC_TOKEN_AUTH_METHOD: 'client_secret_basic' }, 'atrius', input, env.APP_ORIGIN)).rejects.toMatchObject({ code: 'connector_not_configured' });
+    await expect(exchangeCode({ ...env, EPIC_REDIRECT_URI: 'https://other.example/auth/callback' }, 'epic', input, env.APP_ORIGIN)).rejects.toMatchObject({ code: 'connector_configuration_invalid' });
+    await expect(exchangeCode({ ...env, EPIC_TOKEN_AUTH_METHOD: 'client_secret_basic' }, 'epic', input, env.APP_ORIGIN)).rejects.toMatchObject({ code: 'connector_not_configured' });
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it('accepts documented Epic resource operation grants and whitespace without broadening requested scopes', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...token, scope: ' Patient.read Patient.search Encounter.read  ' })));
-    const result = await exchangeCode(env, 'atrius', input, env.APP_ORIGIN);
+    const result = await exchangeCode(env, 'epic', input, env.APP_ORIGIN);
     expect(result.scopes).toBe('Patient.read Patient.search Encounter.read');
-    expect(() => connectorConfig({ ...env, EPIC_SCOPES: 'Patient.read Patient.search' }, 'atrius')).toThrow();
+    expect(() => connectorConfig({ ...env, EPIC_SCOPES: 'Patient.read Patient.search' }, 'epic')).toThrow();
     expect(() => connectorConfig({ ...env, CIGNA_SCOPES: 'search read openid' }, 'cigna')).toThrow();
   });
 
   it.each([
-    ['atrius', 'Patient.write'], ['atrius', 'Patient.create'], ['atrius', 'system/Patient.read'],
-    ['atrius', 'read search'], ['cigna', 'Patient.read'], ['cigna', 'search read write openid'],
-    ['cigna', 'offline_access search read'], ['atrius', ''], ['cigna', '   '],
+    ['epic', 'Patient.write'], ['epic', 'Patient.create'], ['epic', 'system/Patient.read'],
+    ['epic', 'read search'], ['cigna', 'Patient.read'], ['cigna', 'search read write openid'],
+    ['cigna', 'offline_access search read'], ['epic', ''], ['cigna', '   '],
   ] as const)('rejects unsupported granted scopes for %s: %s', async (id, scope) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...token, scope })));
     await expect(exchangeCode(env, id, input, env.APP_ORIGIN)).rejects.toMatchObject({ code: 'unsafe_scope' });
   });
 
-  it.each(['atrius', 'cigna'] as const)('still requires a verified patient context with native grants for %s', async id => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...token, patient: undefined, scope: id === 'atrius' ? 'Patient.read Patient.search ' : 'search read openid', id_token: 'unverified' })));
+  it.each(['epic', 'cigna'] as const)('still requires a verified patient context with native grants for %s', async id => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...token, patient: undefined, scope: id === 'epic' ? 'Patient.read Patient.search ' : 'search read openid', id_token: 'unverified' })));
     await expect(exchangeCode(env, id, input, env.APP_ORIGIN)).rejects.toMatchObject({ code: 'missing_patient_context' });
   });
 });
@@ -91,33 +91,33 @@ describe('SMART endpoint discovery', () => {
 
   it.each([404, 405])('falls back to FHIR capability metadata when well-known returns %s', async status => {
     const fetch = vi.fn().mockResolvedValueOnce(json({}, status)).mockResolvedValueOnce(json(metadata)); vi.stubGlobal('fetch', fetch);
-    expect(await discoverConnector(discoveryEnv, 'atrius')).toMatchObject({ authorizationUrl: env.EPIC_AUTHORIZATION_URL, tokenUrl: env.EPIC_TOKEN_URL });
+    expect(await discoverConnector(discoveryEnv, 'epic')).toMatchObject({ authorizationUrl: env.EPIC_AUTHORIZATION_URL, tokenUrl: env.EPIC_TOKEN_URL });
     expect(fetch.mock.calls.map(call => call[0])).toEqual([`${env.EPIC_FHIR_BASE_URL}/.well-known/smart-configuration`, `${env.EPIC_FHIR_BASE_URL}/metadata`]);
     for (const call of fetch.mock.calls) expect(call[1].redirect).toBe('manual');
   });
 
   it('uses well-known endpoints when available and does not fetch metadata', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ authorization_endpoint: env.EPIC_AUTHORIZATION_URL, token_endpoint: env.EPIC_TOKEN_URL })); vi.stubGlobal('fetch', fetch);
-    expect(await discoverConnector(discoveryEnv, 'atrius')).toMatchObject({ tokenUrl: env.EPIC_TOKEN_URL });
+    expect(await discoverConnector(discoveryEnv, 'epic')).toMatchObject({ tokenUrl: env.EPIC_TOKEN_URL });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it.each([401, 403, 429, 500, 503])('does not mask well-known failure %s with fallback discovery', async status => {
     const fetch = vi.fn().mockResolvedValue(json({}, status)); vi.stubGlobal('fetch', fetch);
-    await expect(discoverConnector(discoveryEnv, 'atrius')).rejects.toMatchObject({ code: 'discovery_failed' });
+    await expect(discoverConnector(discoveryEnv, 'epic')).rejects.toMatchObject({ code: 'discovery_failed' });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('rejects malformed successful discovery without trying metadata', async () => {
     const fetch = vi.fn().mockResolvedValue(json({ authorization_endpoint: env.EPIC_AUTHORIZATION_URL })); vi.stubGlobal('fetch', fetch);
-    await expect(discoverConnector(discoveryEnv, 'atrius')).rejects.toMatchObject({ code: 'discovery_failed' });
+    await expect(discoverConnector(discoveryEnv, 'epic')).rejects.toMatchObject({ code: 'discovery_failed' });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('rejects metadata that points its token endpoint at a local service', async () => {
     const unsafe = JSON.parse(JSON.stringify(metadata).replace(env.EPIC_TOKEN_URL, 'http://127.0.0.1/token'));
     const fetch = vi.fn().mockResolvedValueOnce(json({}, 404)).mockResolvedValueOnce(json(unsafe)); vi.stubGlobal('fetch', fetch);
-    await expect(discoverConnector(discoveryEnv, 'atrius')).rejects.toMatchObject({ code: 'discovery_failed' });
+    await expect(discoverConnector(discoveryEnv, 'epic')).rejects.toMatchObject({ code: 'discovery_failed' });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

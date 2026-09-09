@@ -25,15 +25,15 @@ describe('patient processing boundaries', () => {
     expect(allowedResourceUrl('https://provider.example/fhir', { ...input, next: 'https://provider.example/fhir/Encounter?patient=p1&page=2' }).searchParams.get('patient')).toBe('p1');
   });
   it('does not permit offline access or a write scope', () => {
-    expect(() => connectorConfig({ ATRIUS_SCOPES: 'offline_access patient/*.read' }, 'atrius')).toThrow();
-    expect(() => connectorConfig({ ATRIUS_SCOPES: 'patient/*.write' }, 'atrius')).toThrow();
+    expect(() => connectorConfig({ ATRIUS_SCOPES: 'offline_access patient/*.read' }, 'atrius-health')).toThrow();
+    expect(() => connectorConfig({ ATRIUS_SCOPES: 'patient/*.write' }, 'atrius-health')).toThrow();
   });
   it('rejects oversized payloads even without content-length', async () => {
     await expect(boundedJson(new Response(JSON.stringify({ data: 'x'.repeat(300) })), 100)).rejects.toMatchObject({ code: 'payload_too_large' });
   });
   it('refuses to infer a patient identity from an unverified ID token', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'access', token_type: 'Bearer', id_token: 'unverified' }))));
-    await expect(exchangeCode({ PATIENT_PROCESSING_APPROVED: 'true', SESSION_SIGNING_KEY: 's'.repeat(32), ATRIUS_CLIENT_ID: 'test', ATRIUS_AUTHORIZATION_URL: 'https://provider.example/auth', ATRIUS_TOKEN_URL: 'https://provider.example/token' }, 'atrius', { code: 'code', verifier: 'v'.repeat(43) }, 'https://app.example')).rejects.toMatchObject({ code: 'missing_patient_context' });
+    await expect(exchangeCode({ PATIENT_PROCESSING_APPROVED: 'true', SESSION_SIGNING_KEY: 's'.repeat(32), ATRIUS_CLIENT_ID: 'test', ATRIUS_AUTHORIZATION_URL: 'https://provider.example/auth', ATRIUS_TOKEN_URL: 'https://provider.example/token' }, 'atrius-health', { code: 'code', verifier: 'v'.repeat(43) }, 'https://app.example')).rejects.toMatchObject({ code: 'missing_patient_context' });
   });
   it('never accepts an AI proposal with an invented evidence identifier', () => {
     const result = validateProposals({ topic: 'providers', proposals: [{ kind: 'provider', name: 'Doctor', category: null, date: null, quantity: null, strength: null, form: null, location: null, evidenceIds: ['invented'] }] }, new Map([['real', {text: 'Therapy', method: 'structured_import'}]]));

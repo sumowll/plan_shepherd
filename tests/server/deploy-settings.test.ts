@@ -133,18 +133,19 @@ describe('deployment validation', () => {
     await expect(setup.load()).rejects.toThrow(message);
   });
 
-  it('preserves an explicit blank canonical client secret over a legacy alias', async () => {
-    const setup = await fixture({ vars: { ...publicVars, EPIC_CLIENT_ID: 'synthetic-client' } },
-      'EPIC_CLIENT_SECRET=synthetic-legacy-secret\nATRIUS_CLIENT_SECRET=synthetic-old-canonical-secret\n');
+  it('preserves an explicit blank CI secret without borrowing another connector’s credentials', async () => {
+    const setup = await fixture({ vars: { ...publicVars, EPIC_CLIENT_ID: 'synthetic-epic-client', ATRIUS_CLIENT_ID: 'synthetic-atrius-client' } },
+      'EPIC_CLIENT_SECRET=synthetic-epic-secret\nATRIUS_CLIENT_SECRET=synthetic-file-atrius-secret\n');
     const settings = await setup.load({ ATRIUS_CLIENT_SECRET: '' });
     expect(settings.secrets.ATRIUS_CLIENT_SECRET).toBe('');
-    expect(settings.secrets.EPIC_CLIENT_SECRET).toBe('synthetic-legacy-secret');
-    expect(connectorConfig(settings.env, 'atrius')).toMatchObject({ clientSecret: '', tokenAuthMethod: 'none' });
+    expect(settings.secrets.EPIC_CLIENT_SECRET).toBe('synthetic-epic-secret');
+    expect(connectorConfig(settings.env, 'atrius-health')).toMatchObject({ clientId: 'synthetic-atrius-client', clientSecret: '', tokenAuthMethod: 'none' });
+    expect(connectorConfig(settings.env, 'epic')).toMatchObject({ clientId: 'synthetic-epic-client', clientSecret: 'synthetic-epic-secret', tokenAuthMethod: 'client_secret_basic' });
   });
 
   it('rejects a connector callback on another origin even while processing is disabled', async () => {
-    const setup = await fixture({ vars: { ...publicVars, ATRIUS_REDIRECT_URI: 'https://other.example.com/oauth/callback/atrius' } });
-    await expect(setup.load()).rejects.toThrow('atrius has incomplete or invalid connector settings');
+    const setup = await fixture({ vars: { ...publicVars, ATRIUS_REDIRECT_URI: 'https://other.example.com/oauth/callback/atrius-health' } });
+    await expect(setup.load()).rejects.toThrow('atrius-health has incomplete or invalid connector settings');
   });
 
   it.each(['PATIENT_PROCESSING_APPROVED', 'AI_PROCESSING_APPROVED', 'AI_RETENTION_VERIFIED', 'PRODUCTION_RELEASE_APPROVED'])('rejects enabled preview flag %s', async key => {
