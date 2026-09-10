@@ -43,7 +43,7 @@ export async function deploy(args: string[]): Promise<void> {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.argv.includes('--help')) {
-    process.stdout.write('Usage: npm run deploy -- [--target preview|production] [--config path.jsonc] [--secrets-file path] [--dry-run]\nPreview also supports --upload-only and --skip-build (tests still run).\nPublic variables come from Wrangler config; app secrets come from .env.secrets.<target> and CI secret bindings.\n');
+    process.stdout.write('Usage: npm run deploy -- [--target preview|production] [--config path.jsonc] [--secrets-file path] [--dry-run]\nPreview also supports --upload-only and --skip-build (tests still run).\nCredentials come from .env.secrets.<target> or CI; public application settings come from Wrangler.\n');
   } else {
     deploy(process.argv.slice(2)).catch(error => { process.stderr.write(`${error instanceof Error ? error.message : 'Deployment validation failed.'}\n`); process.exitCode = 1; });
   }

@@ -26,13 +26,13 @@ export async function verifyProduction(env: Record<string, string>, readiness: u
   let connectors: ReturnType<typeof connectorRegistry> = [];
   try { connectors = connectorRegistry(env); }
   catch { failures.push('The connector registry has invalid configuration.'); }
-  for (const { id, enabled } of connectors) {
+  for (const { id, key, enabled } of connectors) {
     if (enabled === false) continue;
-    try { if (!connectorConfig(env, id).enabled) failures.push(`${id} requires approved production configuration.`); }
-    catch { failures.push(`${id} has invalid configuration.`); }
+    try { if (!connectorConfig(env, id).enabled) failures.push(`${key} requires approved production configuration.`); }
+    catch { failures.push(`${key} has invalid configuration.`); }
     if (origin) {
       try { connectorRedirectUri(env, id, origin); }
-      catch { failures.push(`${id} callback must match the production application origin and a supported callback path.`); }
+      catch { failures.push(`${key} callback must match the production application origin and a supported callback path.`); }
     }
   }
   if (!aiEnabled(env)) failures.push('An approved AI model and retention configuration are required.');
@@ -50,7 +50,7 @@ export async function verifyProduction(env: Record<string, string>, readiness: u
   return failures;
 }
 if (process.argv[1]?.endsWith('verify-production.ts')) {
-  const env = await readEnvironment(); let readiness: unknown = null;
+  const env = await readEnvironment('.env', { target: 'production' }); let readiness: unknown = null;
   if (env.PRODUCTION_READINESS_FILE) { try { readiness = JSON.parse(await readFile(env.PRODUCTION_READINESS_FILE, 'utf8')); } catch { /* Report the missing/invalid record below without leaking file content. */ } }
   const failures = await verifyProduction(env, readiness);
   if (failures.length) { process.stderr.write(`Production deployment is not ready:\n${failures.map(x => `- ${x}`).join('\n')}\n`); process.exitCode = 1; }

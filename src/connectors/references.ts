@@ -24,21 +24,22 @@ function references(row: Row): string[] {
   return candidates.flatMap(x => x && typeof x === 'object' && typeof (x as Row).reference === 'string' ? [(x as Row).reference] : []);
 }
 export async function authorizeReferences(env: Record<string, unknown>, id: ConnectorId, patientId: string, token: string, page: unknown): Promise<{ references: AuthorizedReference[]; referenceLimitReached: boolean }> {
-  const base = connectorConfig(env, id).base; const row = page as Row;
+  const config = connectorConfig(env, id); const row = page as Row;
+  if (!config.enabled) throw new AppError('connector_not_configured', 'This connection is not enabled.', 503);
   const rows: Row[] = row?.resourceType === 'Bundle' && Array.isArray(row.entry) ? row.entry.flatMap((x: Row) => x?.resource ? [x.resource] : []) : [row];
-  const refs = [...new Set(rows.filter(Boolean).flatMap(references).filter(ref => referenceTarget(base, ref)))];
-  return { references: await Promise.all(refs.slice(0, 250).map(async reference => ({ reference, capability: await signReference(setting(env, 'SESSION_SIGNING_KEY'), id, patientId, token, reference) }))), referenceLimitReached: refs.length > 250 };
+  const refs = [...new Set(rows.filter(Boolean).flatMap(references).filter(ref => referenceTarget(config.base, ref)))];
+  return { references: await Promise.all(refs.slice(0, 250).map(async reference => ({ reference, capability: await signReference(setting(env, 'SESSION_SIGNING_KEY'), config.id, patientId, token, reference) }))), referenceLimitReached: refs.length > 250 };
 }
 export const referenceRequestSchema = z.object({ receipt: z.string().min(1).max(4096), patientId: z.string().regex(/^[A-Za-z0-9.-]{1,250}$/), references: z.array(z.object({ reference: z.string().max(2000), capability: z.string().max(8000) })).min(1).max(10) });
 export async function getReferences(env: Record<string, unknown>, id: ConnectorId, input: z.infer<typeof referenceRequestSchema>, token: string) {
   const config = connectorConfig(env, id);
   if (!config.enabled) throw new AppError('connector_not_configured', 'This connection is not enabled.', 503);
-  await verifyReceipt(setting(env, 'SESSION_SIGNING_KEY'), input.receipt, id, input.patientId, token);
+  await verifyReceipt(setting(env, 'SESSION_SIGNING_KEY'), input.receipt, config.id, input.patientId, token);
   const resources: unknown[] = []; const additional: AuthorizedReference[] = []; let incomplete = false;
   // Two at a time bounds upstream connections and transient response memory.
   for (let i = 0; i < input.references.length; i += 2) {
     await Promise.all(input.references.slice(i, i + 2).map(async item => {
-      await verifyReference(setting(env, 'SESSION_SIGNING_KEY'), item.capability, id, input.patientId, token, item.reference);
+      await verifyReference(setting(env, 'SESSION_SIGNING_KEY'), item.capability, config.id, input.patientId, token, item.reference);
       const target = referenceTarget(config.base, item.reference);
       if (!target) throw new AppError('invalid_reference', 'The imported reference is not supported.', 400);
       try {
@@ -47,7 +48,7 @@ export async function getReferences(env: Record<string, unknown>, id: ConnectorI
         const resource = await boundedJson(response, 512000) as Row;
         if (resource.resourceType !== target.pathname.split('/').at(-2) || resource.id !== target.pathname.split('/').at(-1)) { incomplete = true; return; }
         resources.push({ ...resource, __sourceReference: item.reference });
-        if (resource.resourceType === 'PractitionerRole') additional.push(...(await authorizeReferences(env, id, input.patientId, token, resource)).references);
+        if (resource.resourceType === 'PractitionerRole') additional.push(...(await authorizeReferences(env, config.id, input.patientId, token, resource)).references);
       } catch { incomplete = true; }
     }));
   }

@@ -19,9 +19,6 @@
     "APP_ENV": "production",
     "APP_ORIGIN": "https://plan-shepherd.moonbacare.com",
     "PLAN_YEAR": "2026",
-    "EPIC_CLIENT_ID": "e8184f19-fd11-4fe6-b33c-8981256b9b57",
-    "CIGNA_CLIENT_ID": "93927d8b-32b4-4c28-bb78-2002e8239da2",
-    "AETNA_CLIENT_ID": "",
     // Set service flags only after the existing production qualification checks are satisfied.
     "PATIENT_PROCESSING_APPROVED": "false",
     "AI_PROCESSING_APPROVED": "false",

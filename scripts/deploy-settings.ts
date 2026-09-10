@@ -2,10 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { parse, type ParseError } from 'jsonc-parser';
 import { z } from 'zod';
-import { parseEnv, runtimeEnvironmentKeys } from './env';
+import { parseEnv, rejectExternalConnectorMetadata, runtimeEnvironmentKeys } from './env';
 import { projectRoot } from './deployment';
 import { connectorConfig, connectorRedirectUri, safeHttpsUrl } from '../src/server/config';
-import { connectorRegistry } from '../src/server/connector-registry';
+import { connectorEnvironmentKeys, connectorRegistry, withConnectorRegistry } from '../src/server/connector-registry';
 
 export type DeploymentTarget = 'preview' | 'production';
 export type DeploymentOptions = {
@@ -72,10 +72,11 @@ export async function readJsonConfig(path: string): Promise<unknown> {
   return parsed;
 }
 
-/** Public config is authoritative. Only recognized secrets can come from the shell/CI. */
-export async function loadDeploymentSettings(
+/** Public app config comes from Wrangler; credentials come from the selected dotenv file or CI. */
+export async function readDeploymentSettings(
   options: Pick<DeploymentOptions, 'target' | 'configPath' | 'secretsFile'>,
   environment: Record<string, string | undefined> = process.env,
+  registry?: unknown,
 ): Promise<DeploymentSettings> {
   const configPath = resolve(projectRoot, options.configPath ?? `wrangler.${options.target}.jsonc`);
   const parsed = configSchema.safeParse(await readJsonConfig(configPath));
@@ -84,10 +85,16 @@ export async function loadDeploymentSettings(
   if (config.env !== undefined) throw new Error('Use a separate configuration file for each deployment target, without nested env overrides.');
   if (config.unsafe !== undefined || config.build !== undefined) throw new Error('Deployment config cannot contain unsafe overrides or custom build commands; use the shared validated build.');
   if (config.keep_vars === true) throw new Error('Remove keep_vars: the selected configuration owns deployed variables.');
-  const { runtimeKeys, secretKeys } = runtimeEnvironmentKeys(config.vars);
+  const registryEnv = registry === undefined ? {} : withConnectorRegistry({}, registry);
+  rejectExternalConnectorMetadata(config.vars);
+  rejectExternalConnectorMetadata(Object.fromEntries(Object.entries(environment).filter(([, value]) => value !== undefined)));
+  const { runtimeKeys, secretKeys } = runtimeEnvironmentKeys(registryEnv);
+  const connectorKeys = connectorEnvironmentKeys(registryEnv);
+  const connectorSecretNames = new Set(connectorKeys.secretKeys);
+  const clientIdNames = new Set(connectorKeys.runtimeKeys.filter(key => !connectorSecretNames.has(key)));
   const secretNames = new Set(secretKeys);
   for (const key of Object.keys(config.vars)) {
-    if (secretNames.has(key)) throw new Error(`Move ${key} out of vars and into the secrets file or CI secrets.`);
+    if (secretNames.has(key) || /_CLIENT_SECRET$/.test(key)) throw new Error(`Move ${key} out of vars and into the secrets file or CI secrets.`);
     if (!runtimeKeys.includes(key)) throw new Error('The deployment config contains an unknown runtime variable. Deployment credentials belong in the shell or CI.');
   }
   let file: Record<string, string> = {};
@@ -97,18 +104,27 @@ export async function loadDeploymentSettings(
       throw new Error('Cannot load the selected secrets file. Use an existing dotenv file containing only application secret keys.');
     }
   }
-  if (Object.keys(file).some(key => !secretNames.has(key))) {
-    throw new Error('The secrets file contains an unknown or non-secret key. Keep public variables in Wrangler config and deployment credentials in the shell or CI.');
+  rejectExternalConnectorMetadata(file);
+  if (Object.keys(file).some(key => !secretNames.has(key) && !clientIdNames.has(key)
+    && (runtimeKeys.includes(key) || key.startsWith('CLOUDFLARE_') || ['PRODUCTION_READINESS_FILE', 'CATALOG_DATABASE_ID'].includes(key)))) {
+    throw new Error('The secrets file contains an unknown or non-secret key. Use application secrets and connector credentials; keep public application settings in Wrangler and deployment credentials in the shell or CI.');
   }
-  const secrets = { ...file };
-  for (const key of secretKeys) if (environment[key] !== undefined) secrets[key] = environment[key];
-  const env: Record<string, string> = { ...config.vars, ...secrets, CLOUDFLARE_ACCOUNT_ID: config.account_id, CLOUDFLARE_WORKER_NAME: config.name };
+  // Unreferenced entries (including retired custom bindings) stay saved but are never uploaded.
+  const secrets: Record<string, string> = {};
+  for (const key of secretKeys) {
+    const value = environment[key] ?? file[key];
+    if (value !== undefined) secrets[key] = value;
+  }
+  for (const key of clientIdNames) {
+    const value = environment[key] ?? file[key];
+    if (value !== undefined) config.vars[key] = value;
+  }
+  const env: Record<string, string> = { ...registryEnv, ...config.vars, ...secrets, CLOUDFLARE_ACCOUNT_ID: config.account_id, CLOUDFLARE_WORKER_NAME: config.name };
   for (const key of ['CLOUDFLARE_API_TOKEN', 'PRODUCTION_READINESS_FILE']) {
     if (environment[key] !== undefined) env[key] = environment[key];
   }
   const database = config.d1_databases?.find(binding => binding.binding === 'CATALOG');
   if (database) env.CATALOG_DATABASE_ID = database.database_id;
-  validateDeploymentSettings(options.target, config, env, secrets);
   config.main = resolve(dirname(configPath), config.main);
   config.assets.directory = resolve(dirname(configPath), config.assets.directory);
   for (const binding of config.d1_databases ?? []) {
@@ -116,6 +132,17 @@ export async function loadDeploymentSettings(
   }
   delete config.$schema;
   return { target: options.target, config, secrets, env };
+}
+
+/** Deployments always validate resolved settings; inspection can report unavailable connections. */
+export async function loadDeploymentSettings(
+  options: Pick<DeploymentOptions, 'target' | 'configPath' | 'secretsFile'>,
+  environment: Record<string, string | undefined> = process.env,
+  registry?: unknown,
+): Promise<DeploymentSettings> {
+  const settings = await readDeploymentSettings(options, environment, registry);
+  validateDeploymentSettings(settings.target, settings.config, settings.env, settings.secrets);
+  return settings;
 }
 
 function validateDeploymentSettings(target: DeploymentTarget, config: DeploymentConfig, env: Record<string, string>, secrets: Record<string, string>): void {
@@ -153,8 +180,8 @@ function validateDeploymentSettings(target: DeploymentTarget, config: Deployment
     try {
       const connector = connectorConfig(env, definition.id);
       connectorRedirectUri(env, definition.id, origin.origin);
-      if (connector.tokenAuthMethod !== 'none' && !connector.clientSecret?.trim()) throw new Error();
+      if (target === 'production' && connector.tokenAuthMethod !== 'none' && !connector.clientSecret?.trim()) throw new Error();
       if (env.PATIENT_PROCESSING_APPROVED === 'true' && !connector.enabled) throw new Error();
-    } catch { throw new Error(`${definition.id} has incomplete or invalid connector settings. Check its client ID, authentication method, secret, FHIR endpoint and callback.`); }
+    } catch { throw new Error(`${definition.key} has incomplete or invalid connector settings. Check its client ID, authentication method, secret, FHIR endpoint and callback.`); }
   }
 }

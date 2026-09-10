@@ -19,20 +19,27 @@ npm run dev
 
 Open `http://127.0.0.1:5173`, or the loopback `APP_ORIGIN` configured in `.env`. `npm run dev` prepares `.dev.vars` automatically and starts on that exact host and port; an occupied port causes an error so registered OAuth callbacks stay consistent. Manual intake works without credentials. Missing integrations and plan sources appear as unavailable, rather than fabricated results.
 
-When ready to configure services:
+Configure local application settings and connection client IDs/secrets in a private `.env`; copy `.env.example` only when `.env` does not already exist. Set up connections through one command interface:
 
 ```sh
-cp .env.example .env
-# Fill .env privately, then:
-npm run connectors:check
-npm run dev
+npm run connectors -- add
+npm run connectors -- edit cigna-patient-access
+npm run connectors -- list
 ```
 
-Add authorization servers to the server-only [connector registry](config/connectors.json); each entry gets `<APP_ORIGIN>/oauth/callback/<id>` through the shared handler. Put client secrets in the environment binding named by `clientSecretEnv`, never in the JSON. Register each exact callback with the corresponding authorization server. See [adding a connection](docs/OPERATIONS.md#connector-registry) for a complete example and deployment limits. Adding an entry does not register or qualify the app with that server.
+Use `add` for a new data source, `edit <key-or-uuid>` for an existing connection, and `list` to review the setup. The interactive commands collect metadata and hidden credential values together. Choose `development`, `preview`, `production`, or several targets when the same credentials apply. Add `--target production` to edit or list one target. Leaving a credential blank during editing keeps its saved value. The optional advanced prompts cover callback paths, custom routing keys, import resources and test-data labels.
 
-`connectors:check` reports every registry entry's configuration issues, callback addresses and token authentication methods, and checks public SMART discovery with at most four connections at a time. Disabled entries skip discovery. It does not sign in, import records or qualify a registration. The connectors support public clients with S256 PKCE and confidential clients using `client_secret_basic` or `client_secret_post`. The bundled defaults preserve existing `ATRIUS_*`, `CIGNA_*` and legacy `EPIC_*` settings; `EPIC_*` is used when the corresponding `ATRIUS_*` setting is absent.
+Setup saves reviewed connection metadata in [config/connectors.json](config/connectors.json). It saves client IDs and secrets in the existing private dotenv workflow: `.env` for development, `.env.secrets.preview` for preview, and `.env.secrets.production` for production. Updates preserve unrelated entries and comments. A missing target value never falls back to another target. Recognized shell/CI credentials override the selected file; public client IDs can also be defaults in the target Wrangler config. Connection metadata stays in the registry; overrides such as `CONNECTOR_REGISTRY` are rejected. The former `config/connector-credentials.local.json` is retained only as a recovery copy and is no longer loaded or maintained by setup.
 
-Restart the server after configuration changes. `.env` and generated `.dev.vars` are ignored by version control; `npm run env:prepare` remains available separately. Never put credentials in `VITE_` variables. See [operations and configuration](docs/OPERATIONS.md) for required settings, callbacks and production controls. Cigna sandbox/devportal endpoints contain test data; its [published Patient Access guide](https://developer.cigna.com/assets/content/service-apis/patient-access/getting-started.md) lists US Commercial availability beginning January 1, 2027.
+Each connection has an immutable UUID `id`, an `organizationId` shared by its organization's connections, a provider/payer `kind`, and an `apiType`. The routing key derives from `<organizationId>-<apiType>` with underscores replaced by hyphens; `key` is only needed for a custom route or additional connection. Authorization and imported records use the UUID. Keep that UUID when target-specific OAuth credentials access the same API and FHIR dataset. A different API or data source, including a sandbox, needs a separate UUID. `patient_access` supports sign-in and imports; `payer_to_payer` and `provider_directory` are reserved for future adapters.
+
+Atrius Health and BCH are separate data sources served through Epic. They share the client ID reference `EPIC_CLIENT_ID`, whose value is saved in each selected target file; their secret references remain separate. Other client ID binding names derive from organization and API, such as `CIGNA_PATIENT_ACCESS_CLIENT_ID`. These names identify the dotenv/shell values and runtime bindings used by the scripts. Secrets require an explicit `clientSecretEnv` reference.
+
+Setup records `scopes` and `tokenAuthMethod` explicitly. `grantedScopeFormat` independently selects the accepted returned permissions. Current Atrius, BCH and Aetna registrations use `client_secret_basic`; Cigna uses `client_secret_post`, its explicit identity scopes and `read_search` grants. No organization name selects authentication behavior. Only requested identity permissions are accepted, and an explicit patient context remains required.
+
+`list` shows each target's callback, scopes, authentication method, credential presence and availability without printing credential values. Register the exact callback with the corresponding authorization server. Saved configuration does not verify that registration or test an import. `npm run connectors:check -- --target development` additionally checks public SMART discovery where endpoints are not explicitly configured; it does not sign in or read records. See [connection setup and migration](docs/OPERATIONS.md#connector-registry) for details and [deployment settings](docs/OPERATIONS.md#deployment-configuration-and-secrets) for supplying target secrets in CI. Add `--target <target> --secrets-file <path>` to setup or connection checks to use a custom dotenv file.
+
+Restart `npm run dev` after setup; it regenerates the ignored, disposable `.dev.vars`. Builds never overwrite `.env` or `.env.secrets.<target>`; keep these protected inputs excluded from Git and backed up securely. Rebuild and redeploy for deployed metadata or credential changes. `npm run env:prepare` remains available separately. Never put credentials in `VITE_` variables. Cigna sandbox/devportal endpoints contain test data; its [published Patient Access guide](https://developer.cigna.com/assets/content/service-apis/patient-access/getting-started.md) lists US Commercial availability beginning January 1, 2027.
 
 ## Load public plan data
 
@@ -55,15 +62,17 @@ npm test
 npm run deploy:check
 ```
 
-These checks do not deploy. Deployment uses the public settings committed in [wrangler.preview.jsonc](wrangler.preview.jsonc) or [wrangler.production.jsonc](wrangler.production.jsonc). It never loads local `.env` or `.dev.vars`, and shell variables do not override these public settings.
+These checks do not deploy. Deployment uses connection metadata from `config/connectors.json`, credentials from the selected target secret file or recognized shell/CI variables, and public application settings committed in [wrangler.preview.jsonc](wrangler.preview.jsonc) or [wrangler.production.jsonc](wrangler.production.jsonc). It never loads local `.env` or `.dev.vars`. Secret-file client IDs override Wrangler client ID defaults; recognized shell/CI credentials override the file. Other public application settings remain controlled by Wrangler.
 
-The preview enables manual intake and bundled county lookup, with patient connections, AI and release approvals disabled and no catalog database. Its deployment can also upload application secrets from the optional ignored `.env.secrets.preview` file or recognized secret variables in the shell/CI environment. Supplying secrets does not enable integrations. For a local preview deployment:
+The preview enables manual intake and bundled county lookup, with patient connections, AI and release approvals disabled and no catalog database. Its deployment loads application secrets such as `SESSION_SIGNING_KEY` and `AI_API_KEY`, plus referenced connector client IDs/secrets, from the optional ignored `.env.secrets.preview` file or recognized shell/CI variables. Supplying secrets does not enable integrations. For a local preview deployment:
 
 ```sh
 npx wrangler login
-cp .env.secrets.example .env.secrets.preview
+if [ ! -e .env.secrets.preview ]; then
+  cp .env.secrets.example .env.secrets.preview
+fi
 chmod 600 .env.secrets.preview
-# Uncomment and fill only the application secrets you intend to upload.
+# Fill only the app secrets and connection credentials you intend to supply.
 npm run deploy:preview:check
 npm run deploy:preview
 ```

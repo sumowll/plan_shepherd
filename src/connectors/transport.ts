@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { connectorConfig, connectorRedirectUri, connectorScopesAllowed, safeHttpsUrl, setting, type ConnectorId } from '../server/config';
+import { connectorConfig, connectorRedirectUri, requestedConnectorScopesAllowed, safeHttpsUrl, setting, type ConnectorId } from '../server/config';
 import { AppError, boundedJson, safeFetch } from '../server/http';
-import { importResourceSchema, type ScopeProfile } from '../shared/connectors';
+import { importResourceSchema, type GrantedScopeFormat } from '../shared/connectors';
 import { signReceipt, verifyReceipt } from './receipt';
 
 const endpointsSchema = z.object({ authorization_endpoint: z.string().url(), token_endpoint: z.string().url() });
@@ -48,13 +48,17 @@ export async function discoverConnector(env: Record<string, unknown>, id: Connec
   try { return { ...config, authorizationUrl: safeHttpsUrl(discovery.data.authorization_endpoint).href, tokenUrl: safeHttpsUrl(discovery.data.token_endpoint).href }; }
   catch { throw new AppError('discovery_failed', 'The provider published unsupported authorization endpoints. Check the connection configuration.', 502); }
 }
-export function grantedConnectorScopesAllowed(scopeProfile: ScopeProfile, scopes: string): boolean {
+export function grantedConnectorScopesAllowed(format: GrantedScopeFormat, scopes: string, requestedScopes: string): boolean {
   const values = scopes.trim().split(/\s+/);
-  // Epic returns registered API operations; Cigna may return read/search grants.
-  // The token must still identify a patient, and every resource remains patient-bound.
-  return !!scopes.trim() && values.every(scope => connectorScopesAllowed(scopeProfile, scope)
-    || scopeProfile === 'epic' && /^[A-Z][A-Za-z]+\.(?:read|search)$/.test(scope)
-    || scopeProfile === 'cigna' && (scope === 'read' || scope === 'search'));
+  const requested = new Set(requestedScopes.trim().split(/\s+/));
+  // Identity permissions require an explicit request, regardless of grant syntax.
+  // Native grants never replace the mandatory patient context or patient checks.
+  return !!scopes.trim() && values.every(scope => {
+    if (scope === 'openid' || scope === 'fhirUser') return requested.has(scope);
+    return requestedConnectorScopesAllowed(scope)
+      || format === 'resource_operations' && /^[A-Z][A-Za-z]+\.(?:read|search)$/.test(scope)
+      || format === 'read_search' && (scope === 'read' || scope === 'search');
+  });
 }
 export const tokenRequestSchema = z.object({ code: z.string().min(1).max(4096), verifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/) });
 export async function exchangeCode(env: Record<string, unknown>, id: ConnectorId, input: z.infer<typeof tokenRequestSchema>, origin: string) {
@@ -72,14 +76,14 @@ export async function exchangeCode(env: Record<string, unknown>, id: ConnectorId
   }
   const response = await safeFetch(config.tokenUrl, { method: 'POST', headers, body });
   if (!response.ok) throw new AppError('authorization_failed', 'Authorization was not completed. Please reconnect to your provider.', 401);
-  // Cigna identity scopes support its registration. ID tokens are discarded;
+  // Identity scopes may support the registration. ID tokens are discarded;
   // patient authorization still comes exclusively from the token response's patient context.
   const token = z.object({ access_token: z.string().min(1).max(12000), token_type: z.string(), expires_in: z.number().positive().optional(), patient: z.string().max(250).optional(), scope: z.string().optional() }).parse(await boundedJson(response, 64000));
   if (token.token_type.toLowerCase() !== 'bearer' || !token.patient || !/^[A-Za-z0-9.-]+$/.test(token.patient)) throw new AppError('missing_patient_context', 'The approved connection must return a SMART patient context. Check its registration and scopes.', 502);
   const granted = (token.scope ?? config.scopes).trim().split(/\s+/).join(' ');
-  if (!grantedConnectorScopesAllowed(config.scopeProfile, granted)) throw new AppError('unsafe_scope', 'This connection returned permissions outside its supported patient read and identity scopes.', 502);
+  if (!grantedConnectorScopesAllowed(config.grantedScopeFormat, granted, config.scopes)) throw new AppError('unsafe_scope', 'This connection returned permissions outside its supported patient read and identity scopes.', 502);
   const expiresIn = token.expires_in ?? 300;
-  const receipt = await signReceipt(setting(env, 'SESSION_SIGNING_KEY'), id, token.patient, token.access_token, expiresIn);
+  const receipt = await signReceipt(setting(env, 'SESSION_SIGNING_KEY'), config.id, token.patient, token.access_token, expiresIn);
   return { accessToken: token.access_token, patientId: token.patient, expiresIn, scopes: granted, receipt };
 }
 export const resourceRequestSchema = z.object({ receipt: z.string().min(1).max(4096), patientId: z.string().regex(/^[A-Za-z0-9.-]{1,250}$/), resource: importResourceSchema, next: z.string().max(8000).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
@@ -126,7 +130,7 @@ export function allowedResourceUrl(base: string, input: Omit<z.infer<typeof reso
 export async function getResourcePage(env: Record<string, unknown>, id: ConnectorId, input: z.infer<typeof resourceRequestSchema>, accessToken: string) {
   const config = connectorConfig(env, id);
   if (!config.enabled) throw new AppError('connector_not_configured', 'This connection is not enabled.', 503);
-  await verifyReceipt(setting(env, 'SESSION_SIGNING_KEY'), input.receipt, id, input.patientId, accessToken);
+  await verifyReceipt(setting(env, 'SESSION_SIGNING_KEY'), input.receipt, config.id, input.patientId, accessToken);
   if (!config.resources.includes(input.resource)) throw new AppError('resource_unavailable', 'This resource is not enabled for the approved connection.', 422);
   const target = allowedResourceUrl(config.base, input);
   const response = await safeFetch(target, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/fhir+json' } });

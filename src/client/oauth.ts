@@ -1,6 +1,7 @@
 import type { ImportResult } from '../shared/contracts';
 import { normalizeFhir, resourcesFromPage, nextPage } from '../connectors/fhir';
 import { clearSession, sessionController, releaseController, sessionGeneration } from './privacy';
+import { connectorIdSchema } from '../shared/connectors';
 
 const pending = new Set<() => void>();
 export function resetPatientSession(): void { for (const cancel of pending) cancel(); pending.clear(); clearSession(); }
@@ -12,14 +13,20 @@ async function json<T>(response: Response): Promise<T> {
   return payload as T;
 }
 export async function connectPatient(id: string): Promise<ImportResult> {
-  const connectorPath = `/api/connectors/${encodeURIComponent(id)}`;
+  const authorizePath = `/api/connectors/${encodeURIComponent(id)}/authorize`;
   const popup = window.open('about:blank', `connect-${id}`, 'popup,width=550,height=720');
   if (!popup) throw new Error('Allow the secure sign-in window, then try connecting again.');
   const generation = sessionGeneration(); const controller = sessionController();
   const stop = () => { controller.abort(); popup.close(); };
   pending.add(stop); window.addEventListener('plan-shepherd:clear-session', stop);
   try {
-    const config = await json<{ authorizationUrl: string; clientId: string; scopes: string; audience: string; responseMode: string; redirectUri: string; resources: string[] }>(await fetch(`${connectorPath}/authorize`, { signal: controller.signal, cache: 'no-store' }));
+    const config = await json<{ connectionId: string; authorizationUrl: string; clientId: string; scopes: string; audience: string; responseMode: string; redirectUri: string; resources: string[] }>(await fetch(authorizePath, { signal: controller.signal, cache: 'no-store' }));
+    const parsedConnectionId = connectorIdSchema.safeParse(config.connectionId);
+    if (!parsedConnectionId.success) throw new Error('The connection returned an invalid registration. Please reconnect.');
+    const connectionId = parsedConnectionId.data;
+    const requestedConnectionId = connectorIdSchema.safeParse(id);
+    if (requestedConnectionId.success && requestedConnectionId.data !== connectionId) throw new Error('The connection returned a different registration. Please reconnect.');
+    const connectorPath = `/api/connectors/${connectionId}`;
     if (new URL(config.redirectUri).origin !== window.location.origin) throw new Error('Open the application at its configured address before connecting.');
     const state = random(); const verifier = random(); const codeChallenge = await challenge(verifier);
     const codePromise = new Promise<string>((resolve, reject) => {
@@ -29,7 +36,7 @@ export async function connectPatient(id: string): Promise<ImportResult> {
         if (event.origin !== window.location.origin || event.source !== popup) return;
         const data = event.data as Record<string, unknown> | null;
         if (!data || data.type !== 'plan-shepherd:oauth') return;
-        if (data.connector !== id || data.state !== state) { cleanup(); reject(new Error('The sign-in response did not match this session.')); return; }
+        if (data.connector !== connectionId || data.state !== state) { cleanup(); reject(new Error('The sign-in response did not match this session.')); return; }
         cleanup(); popup.close();
         if (data.error || typeof data.code !== 'string') reject(new Error('Sign-in was not completed. Please try again.')); else resolve(data.code);
       };
@@ -84,7 +91,7 @@ export async function connectPatient(id: string): Promise<ImportResult> {
       }
     }
     if (generation !== sessionGeneration()) throw new Error('The session was cleared. Please reconnect.');
-    const result = normalizeFhir(all, id, { from: '2025-01-01', to: '2025-12-31', patientId: credentials.patientId, fhirBase: config.audience });
+    const result = normalizeFhir(all, connectionId, { from: '2025-01-01', to: '2025-12-31', patientId: credentials.patientId, fhirBase: config.audience });
     return { ...result, complete: complete && result.complete, warnings: [...new Set([...warnings, ...result.warnings])] };
   } finally { pending.delete(stop); window.removeEventListener('plan-shepherd:clear-session', stop); popup.close(); releaseController(controller); }
 }

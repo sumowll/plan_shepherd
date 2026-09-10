@@ -25,6 +25,7 @@
     "db:migrate:local": "WRANGLER_LOG_PATH=.cache/wrangler WRANGLER_SEND_METRICS=false wrangler d1 migrations apply plan-shepherd-catalog --local",
     "env:prepare": "node --import tsx scripts/prepare-env.ts",
     "connectors:check": "node --import tsx scripts/check-connectors.ts",
+    "connectors": "node --import tsx scripts/connectors.ts",
     "deploy:production:check": "node --import tsx scripts/deploy.ts --dry-run",
     "db:migrate:production": "node --import tsx scripts/migrate-production.ts",
     "readiness:template": "node --import tsx scripts/readiness-template.ts"

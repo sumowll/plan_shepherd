@@ -48,15 +48,15 @@ app.get('/api/status', async c => {
   try { catalog = await catalogStatus(c.env.CATALOG); } catch { /* A missing local database is an explicit unavailable state. */ }
   const definitions = connectorRegistry(c.env);
   const activeIds = new Set(definitions.filter(definition => definition.enabled).map(definition => definition.id));
-  const connectors = definitions.map(({ id, name, kind }) => {
+  const connectors = definitions.map(({ id, key, organizationId, name, kind, apiType }) => {
     try {
       const config = connectorConfig(c.env, id);
       connectorRedirectUri(c.env, id, appOrigin(c.env, c.req.url));
-      return { id, name: config.name, kind, configured: config.configured, enabled: config.enabled,
+      return { id, key, organizationId, name: config.name, kind, apiType, configured: config.configured, enabled: config.enabled,
         ...(config.testEnvironment ? { testEnvironment: true } : {}),
         ...(config.unavailableReason ? { reason: config.unavailableReason } : {}) };
     }
-    catch (error) { return { id, name, kind, configured: false, enabled: false, reason: error instanceof AppError && error.code === 'connector_configuration_invalid' ? error.message : 'Connection settings need attention.' }; }
+    catch (error) { return { id, key, organizationId, name, kind, apiType, configured: false, enabled: false, reason: error instanceof AppError && error.code === 'connector_configuration_invalid' ? error.message : 'Connection settings need attention.' }; }
   });
   const ai = { enabled: aiEnabled(c.env), ...(!aiEnabled(c.env) ? { reason: 'Awaiting approved AI configuration.' } : {}) };
   const issues = [...(!catalog.available ? ['Plan data is not published yet.'] : []), ...connectors.filter(x => activeIds.has(x.id) && !x.enabled).map(x => `${x.name} is not connected.`), ...(!ai.enabled ? ['The assistant is not configured.'] : [])];
@@ -94,7 +94,7 @@ app.get('/api/connectors/:id/authorize', async c => {
   const origin = appOrigin(c.env, c.req.url);
   if (new URL(c.req.url).origin !== origin) throw new AppError('app_origin_mismatch', 'Open the application at its configured address before connecting.', 409);
   const config = await discoverConnector(c.env, id);
-  return c.json({ name: config.name, authorizationUrl: config.authorizationUrl, clientId: config.clientId, scopes: config.scopes, audience: config.base, responseMode: config.responseMode, redirectUri: connectorRedirectUri(c.env, id, origin), resources: config.resources });
+  return c.json({ connectionId: config.id, name: config.name, authorizationUrl: config.authorizationUrl, clientId: config.clientId, scopes: config.scopes, audience: config.base, responseMode: config.responseMode, redirectUri: connectorRedirectUri(c.env, id, origin), resources: config.resources });
 });
 app.post('/api/connectors/:id/token', async c => {
   const { id } = connectorDefinition(c.env, c.req.param('id'));
@@ -119,6 +119,7 @@ app.on(['GET', 'POST'], ['/oauth/callback/:id', '/auth/callback/:id', '/auth/cal
     ? connectorRegistry(c.env).find(entry => entry.legacyCallbackPath === c.req.path)
     : connectorDefinition(c.env, c.req.param('id'));
   if (!definition) throw new AppError('connector_not_found', 'This connection is not registered.', 404);
+  if (definition.apiType !== 'patient_access') throw new AppError('connector_not_configured', 'This API does not support patient sign-in.', 503);
   const { id } = definition;
   const callback = new URL(connectorRedirectUri(c.env, id, c.req.url));
   const received = new URL(c.req.url);

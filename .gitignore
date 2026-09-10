@@ -12,4 +12,6 @@ dist/
 coverage/
 artifacts/
 *.local
+config/connector-credentials.local.json
+.connector-credentials-*.tmp
 worker-configuration.d.ts

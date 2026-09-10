@@ -1,43 +1,57 @@
 [
   {
-    "id": "epic",
-    "name": "Epic",
-    "kind": "provider",
-    "scopeProfile": "epic",
-    "fhirBaseUrl": "https://iatrius.atriushealth.org/FHIR/api/FHIR/R4",
-    "legacyEnvPrefixes": ["EPIC"],
-    "legacyCallbackPath": "/auth/callback"
-  },
-  {
-    "id": "atrius-health",
+    "id": "1938958e-4c7b-426b-a356-0e0a47f9d31c",
+    "organizationId": "atrius-health",
     "name": "Atrius Health",
     "kind": "provider",
-    "scopeProfile": "epic",
+    "apiType": "patient_access",
+    "grantedScopeFormat": "resource_operations",
+    "clientIdEnv": "EPIC_CLIENT_ID",
     "fhirBaseUrl": "https://iatrius.atriushealth.org/FHIR/api/FHIR/R4",
-    "legacyEnvPrefixes": ["ATRIUS"]
+    "legacyCallbackPath": "/auth/callback",
+    "scopes": "launch/patient patient/*.read",
+    "clientSecretEnv": "ATRIUS_CLIENT_SECRET",
+    "tokenAuthMethod": "client_secret_basic"
   },
   {
-    "id": "bch",
+    "id": "ff868f81-a768-44e8-9d13-57135ccafc61",
+    "organizationId": "bch",
     "name": "Boston Children's Hospital",
     "kind": "provider",
-    "scopeProfile": "smart",
-    "fhirBaseUrl": "https://fhir.bch.org/fhir",
-    "legacyEnvPrefixes": ["BCH"]
+    "apiType": "patient_access",
+    "clientIdEnv": "EPIC_CLIENT_ID",
+    "fhirBaseUrl": "https://epicproxy.et1351.epichosted.com/APIProxyPRD/HOME/api/FHIR/R4",
+    "scopes": "launch/patient patient/*.read",
+    "clientSecretEnv": "BCH_CLIENT_SECRET",
+    "tokenAuthMethod": "client_secret_basic"
   },
   {
-    "id": "cigna",
+    "id": "74883015-7d10-40a9-a7d5-f75c6b1582ae",
+    "organizationId": "cigna",
     "name": "Cigna",
     "kind": "payer",
-    "scopeProfile": "cigna",
-    "legacyEnvPrefixes": ["CIGNA"],
-    "testFhirBaseUrls": ["https://fhir.cigna.com/PatientAccess/v1-devportal"]
+    "apiType": "patient_access",
+    "scopes": "openid fhirUser patient/*.read",
+    "grantedScopeFormat": "read_search",
+    "fhirBaseUrl": "https://fhir.cigna.com/PatientAccess/v1",
+    "testFhirBaseUrls": [
+      "https://fhir.cigna.com/PatientAccess/v1-devportal"
+    ],
+    "clientSecretEnv": "CIGNA_CLIENT_SECRET",
+    "tokenAuthMethod": "client_secret_post"
   },
   {
-    "id": "aetna",
+    "id": "f99b1027-4b43-4acd-8e6b-7814f0287743",
+    "organizationId": "aetna",
     "name": "Aetna",
     "kind": "payer",
-    "scopeProfile": "smart",
-    "legacyEnvPrefixes": ["AETNA"],
-    "testFhirBaseUrls": ["https://fhir.aetna.com/PatientAccess/v1-devportal"]
+    "apiType": "patient_access",
+    "fhirBaseUrl": "https://apif1.aetna.com/fhir/v2/patientaccess",
+    "testFhirBaseUrls": [
+      "https://fhir.aetna.com/PatientAccess/v1-devportal"
+    ],
+    "scopes": "launch/patient patient/*.read",
+    "clientSecretEnv": "AETNA_CLIENT_SECRET",
+    "tokenAuthMethod": "client_secret_basic"
   }
 ]

@@ -3,13 +3,14 @@ import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { connectionIdentity } from '../helpers/connection-identity';
 import App from '../../src/client/App';
 import { comparePlans } from '../../src/domain';
 import type { AppStatus, AssistantReply, CatalogSearch, ComparisonInput, ComparisonResult, ImportResult, Plan, SourceRef } from '../../src/shared/contracts';
 
 const oauth = vi.hoisted(() => ({ connect: vi.fn() }));
 vi.mock('../../src/client/oauth', () => ({ connectPatient: oauth.connect, resetPatientSession: () => window.dispatchEvent(new CustomEvent('plan-shepherd:clear-session')) }));
-const status: AppStatus = { year: 2026, connectors: [{ id: 'atrius', name: 'Atrius Health', kind: 'provider', configured: true, enabled: true }, { id: 'cigna', name: 'Cigna', kind: 'payer', configured: false, enabled: false }], ai: { enabled: true }, catalog: { available: false, releaseId: null, planCount: 0 }, productionReady: false, issues: [] };
+const status: AppStatus = { year: 2026, connectors: [{ ...connectionIdentity('atrius', 1, 'atrius-health'), name: 'Atrius Health', kind: 'provider', apiType: 'patient_access', configured: true, enabled: true }, { ...connectionIdentity('cigna', 2, 'cigna'), name: 'Cigna', kind: 'payer', apiType: 'patient_access', configured: false, enabled: false }], ai: { enabled: true }, catalog: { available: false, releaseId: null, planCount: 0 }, productionReady: false, issues: [] };
 const imported: ImportResult = { providers: [{ id: 'imported-provider', name: 'Imported provider', preferred: false, evidence: [] }], medications: [], events: [], warnings: [], resourcesRead: 2, complete: true, patient: { source: 'Atrius Health', id: 'patient-1', name: 'Test Patient', dateOfBirth: '1980-02-03', evidence: [] } };
 let assistantReply: AssistantReply;
 let catalogRequest: ((input: Record<string, unknown>) => Promise<CatalogSearch>) | undefined;
@@ -56,8 +57,21 @@ const publicSource: SourceRef = { id: 'client-fixture', publisher: 'Synthetic te
 function publicPlan(id: string): Plan { return { id, name: `Public plan ${id}`, issuer: 'Synthetic issuer', family: 'aca', year: 2026, state: 'MA', countyFips: ['25017'], status: 'available', effectiveStart: '2026-01-01', effectiveEnd: '2026-12-31', monthlyPremiumCents: 10000, premiumEstimated: false, deductibleCents: 0, oopMaxCents: 200000, drugDeductibleCents: 0, drugOopMaxCents: 200000, benefits: [], providers: [], drugs: [], prices: [], source: publicSource, documentUrls: [], rulesVerified: true, underwritingRequired: false, networkComplete: true, formularyComplete: true }; }
 
 describe('connection availability', () => {
+  it('only offers patient access APIs in the patient record connections', async () => {
+    const otherApis = [
+      { ...connectionIdentity('cigna-transfer', 3, 'cigna'), name: 'Cigna Payer-to-Payer', kind: 'payer' as const, apiType: 'payer_to_payer' as const, configured: true, enabled: true },
+      { ...connectionIdentity('cigna-directory', 4, 'cigna'), name: 'Cigna Provider Directory', kind: 'payer' as const, apiType: 'provider_directory' as const, configured: true, enabled: true },
+    ];
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: [...status.connectors, ...otherApis] }) } as Response);
+    render(createElement(App)); goStep('Your care');
+    await screen.findByRole('heading', { name: 'Atrius Health' });
+    expect(screen.getByRole('heading', { name: 'Cigna' })).toBeTruthy();
+    for (const connector of otherApis) expect(screen.queryByRole('heading', { name: connector.name })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Connect account' })).toHaveLength(1);
+  });
+
   it('labels a sandbox as test records while allowing test member sign-in', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: status.connectors.map(connector => connector.id === 'cigna' ? { ...connector, configured: true, enabled: true, testEnvironment: true } : connector) }) } as Response);
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: status.connectors.map(connector => connector.key === 'cigna' ? { ...connector, configured: true, enabled: true, testEnvironment: true } : connector) }) } as Response);
     oauth.connect.mockResolvedValue(imported);
     render(createElement(App)); goStep('Your care');
     const testNote = await screen.findByText('Test records only');
@@ -70,7 +84,7 @@ describe('connection availability', () => {
     expect((connect as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(connect);
     await screen.findByRole('dialog', { name: 'CONFIRM YOUR RECORDS' });
-    expect(oauth.connect).toHaveBeenCalledWith('cigna');
+    expect(oauth.connect).toHaveBeenCalledWith(status.connectors[1].id);
   });
 
   it('retries a failed availability check without clearing entered information and enables account connection', async () => {
@@ -94,7 +108,7 @@ describe('connection availability', () => {
     goStep('Your care');
     fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
     await screen.findByRole('dialog', { name: 'CONFIRM YOUR RECORDS' });
-    expect(oauth.connect).toHaveBeenCalledWith('atrius');
+    expect(oauth.connect).toHaveBeenCalledWith(status.connectors[0].id);
   });
 
   it('shows the connection reason and rechecks unavailable connectors', async () => {
@@ -110,7 +124,7 @@ describe('connection availability', () => {
   });
 
   it('renders arbitrary registry entries and uses their name when confirming records', async () => {
-    const connector = { id: 'hospital-123', name: 'Example University Hospital', kind: 'provider' as const, configured: true, enabled: true };
+    const connector = { ...connectionIdentity('hospital-123', 5, 'hospital'), name: 'Example University Hospital', kind: 'provider' as const, apiType: 'patient_access' as const, configured: true, enabled: true };
     vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: [connector] }) } as Response);
     oauth.connect.mockResolvedValue({ ...imported, patient: { ...imported.patient!, source: connector.id } });
     render(createElement(App)); goStep('Your care');
@@ -127,7 +141,7 @@ describe('connection availability', () => {
   });
 
   it('bounds a large registry to twenty cards and supports paging and name search', async () => {
-    const connectors = Array.from({ length: 1003 }, (_, index) => ({ id: `hospital-${index + 1}`, name: `Hospital ${String(index + 1).padStart(4, '0')}`, kind: 'provider' as const, configured: true, enabled: true }));
+    const connectors = Array.from({ length: 1003 }, (_, index) => ({ ...connectionIdentity(`hospital-${index + 1}`, index + 1), name: `Hospital ${String(index + 1).padStart(4, '0')}`, kind: 'provider' as const, apiType: 'patient_access' as const, configured: true, enabled: true }));
     vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors }) } as Response);
     render(createElement(App)); goStep('Your care');
     const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));

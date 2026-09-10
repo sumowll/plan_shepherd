@@ -7,6 +7,7 @@ import { deploy } from '../../scripts/deploy';
 import { buildApplication, runProjectCommand } from '../../scripts/build';
 import { deploymentEnvironment, runWrangler, withDeploymentFiles } from '../../scripts/deployment';
 import { queryD1 } from '../../scripts/d1-query';
+import { connectorEnvironmentKeys } from '../../src/server/connector-registry';
 import { runtimeEnvironmentKeys } from '../../scripts/env';
 
 vi.mock('../../scripts/build', () => ({ buildApplication: vi.fn(), runProjectCommand: vi.fn() }));
@@ -37,18 +38,19 @@ async function fixture(production = false) {
   const config = {
     name: 'synthetic-preview', account_id: '1'.repeat(32), main: './worker.js', assets: { directory: './assets' },
     vars: production ? { ...publicVars, PATIENT_PROCESSING_APPROVED: 'true', AI_PROCESSING_APPROVED: 'true',
-      AI_RETENTION_VERIFIED: 'true', AI_MODEL: 'synthetic-model', CONNECTOR_REGISTRY: '[]' } : { ...publicVars, BCH_REDIRECT_URI: `${publicVars.APP_ORIGIN}/auth/callback/bch` },
+      AI_RETENTION_VERIFIED: 'true', AI_MODEL: 'synthetic-model' } : { ...publicVars },
     ...(production ? { d1_databases: [{ binding: 'CATALOG', database_id: '11111111-1111-4111-8111-111111111111' }] } : {}),
   };
   await writeFile(configPath, JSON.stringify(config));
-  await writeFile(secretsFile, `SESSION_SIGNING_KEY=${signingKey}\n${production ? 'AI_API_KEY=synthetic-ai-key\n' : ''}`, { mode: 0o600 });
-  return { directory, workerPath, args: ['--target', production ? 'production' : 'preview', '--config', configPath, '--secrets-file', secretsFile] };
+  const secretText = `# Saved deployment inputs\nSESSION_SIGNING_KEY=${signingKey}\n${production ? 'AI_API_KEY=synthetic-ai-key\n' + connectorEnvironmentKeys({}).runtimeKeys.map(key => `${key}=synthetic-${key}\n`).join('') : ''}`;
+  await writeFile(secretsFile, secretText, { mode: 0o600 });
+  return { directory, workerPath, secretsFile, secretText, args: ['--target', production ? 'production' : 'preview', '--config', configPath, '--secrets-file', secretsFile] };
 }
 
 beforeEach(() => {
   uploads.length = 0;
   vi.clearAllMocks();
-  for (const key of [...runtimeEnvironmentKeys(publicVars).secretKeys, 'CLOUDFLARE_API_TOKEN', 'PRODUCTION_READINESS_FILE']) vi.stubEnv(key, undefined);
+  for (const key of [...runtimeEnvironmentKeys(publicVars).runtimeKeys, 'CLOUDFLARE_API_TOKEN', 'PRODUCTION_READINESS_FILE']) vi.stubEnv(key, undefined);
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   vi.mocked(buildApplication).mockResolvedValue(undefined);
   vi.mocked(runWrangler).mockImplementation((args, env) => {
@@ -91,6 +93,7 @@ describe('deployment orchestration', () => {
     expect(output).not.toContain('synthetic-deployment-token');
     for (const path of upload.paths) await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(queryD1).not.toHaveBeenCalled();
+    expect(await readFile(setup.secretsFile, 'utf8')).toBe(setup.secretText);
   });
 
   it('uses versions upload for a preview upload and still runs tests when skipping the build', async () => {
@@ -128,6 +131,7 @@ describe('deployment orchestration', () => {
     expect(buildApplication).not.toHaveBeenCalled();
     expect(runProjectCommand).not.toHaveBeenCalled();
     expect(runWrangler).not.toHaveBeenCalled();
+    expect(await readFile(setup.secretsFile, 'utf8')).toBe(setup.secretText);
   });
 });
 
