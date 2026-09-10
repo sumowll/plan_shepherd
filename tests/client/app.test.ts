@@ -46,6 +46,7 @@ async function enterProfile(dob = '1980-02-03') {
   fireEvent.change(screen.getByLabelText(/^County/), { target: { value: '25017' } });
 }
 function goStep(name: string) { fireEvent.click(within(screen.getByRole('navigation', { name: 'Coverage steps' })).getByRole('button', { name: new RegExp(name) })); }
+function expectActiveStep(name: string) { expect(within(screen.getByRole('navigation', { name: 'Coverage steps' })).getByRole('button', { current: 'step' }).textContent).toContain(name); }
 async function importRecords(again = false) {
   goStep('Your care');
   fireEvent.click(screen.getByRole('button', { name: again ? 'Import again' : 'Connect account' }));
@@ -75,7 +76,7 @@ describe('connection availability', () => {
     oauth.connect.mockResolvedValue(imported);
     render(createElement(App)); goStep('Your care');
     const testNote = await screen.findByText('Test records only');
-    const sandbox = within(testNote.closest('.connector-card') as HTMLElement);
+    const sandbox = within(testNote.closest('.connector-row') as HTMLElement);
     expect(sandbox.getByRole('heading', { name: 'Cigna' })).toBeTruthy();
     expect(sandbox.getByText('Sign in with a test member account.')).toBeTruthy();
     expect(screen.getByText('Your provider records')).toBeTruthy();
@@ -131,7 +132,7 @@ describe('connection availability', () => {
     await screen.findByRole('heading', { name: connector.name });
     expect(screen.queryByRole('heading', { name: 'Atrius Health' })).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Cigna' })).toBeNull();
-    expect(screen.queryByRole('searchbox', { name: 'Search providers and insurers' })).toBeNull();
+    expect(screen.getByRole('searchbox', { name: 'Search providers and insurers' })).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: 'Connection pages' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Retry availability' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
@@ -140,39 +141,187 @@ describe('connection availability', () => {
     expect(confirmation.getByText(`Review the identity supplied by ${connector.name} before adding these records to your session.`)).toBeTruthy();
   });
 
-  it('bounds a large registry to twenty cards and supports paging and name search', async () => {
+  it('bounds a large registry to six rows and supports paging and name search', async () => {
     const connectors = Array.from({ length: 1003 }, (_, index) => ({ ...connectionIdentity(`hospital-${index + 1}`, index + 1), name: `Hospital ${String(index + 1).padStart(4, '0')}`, kind: 'provider' as const, apiType: 'patient_access' as const, configured: true, enabled: true }));
     vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors }) } as Response);
     render(createElement(App)); goStep('Your care');
     const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
     await connections.findByRole('heading', { name: 'Hospital 0001' });
-    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(20);
-    expect(connections.getByText('1–20 of 1003 connections')).toBeTruthy();
+    expect(connections.getAllByRole('listitem')).toHaveLength(6);
+    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(6);
+    expect(connections.getByText('1–6 of 1,003 connections')).toBeTruthy();
     expect((connections.getByRole('button', { name: 'Previous connections' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(connections.getByRole('button', { name: 'Next connections' }));
     expect(connections.queryByRole('heading', { name: 'Hospital 0001' })).toBeNull();
-    expect(connections.getByRole('heading', { name: 'Hospital 0021' })).toBeTruthy();
-    expect(connections.getByText('21–40 of 1003 connections')).toBeTruthy();
+    expect(connections.getByRole('heading', { name: 'Hospital 0007' })).toBeTruthy();
+    expect(connections.getByText('7–12 of 1,003 connections')).toBeTruthy();
     const search = connections.getByRole('searchbox', { name: 'Search providers and insurers' });
     fireEvent.change(search, { target: { value: '  hOsPiTaL 100  ' } });
-    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(4);
+    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(5);
+    expect(connections.getByRole('heading', { name: 'Hospital 0100' })).toBeTruthy();
     expect(connections.getByRole('heading', { name: 'Hospital 1003' })).toBeTruthy();
+    expect(connections.getByText('1–5 of 5 connections')).toBeTruthy();
     expect(connections.queryByRole('navigation', { name: 'Connection pages' })).toBeNull();
     fireEvent.change(search, { target: { value: 'not a registered name' } });
     expect(connections.getByText('No providers or insurers match your search.')).toBeTruthy();
     expect(connections.queryByRole('button', { name: 'Connect account' })).toBeNull();
     fireEvent.change(search, { target: { value: '' } });
-    expect(connections.getByText('1–20 of 1003 connections')).toBeTruthy();
+    expect(connections.getByText('1–6 of 1,003 connections')).toBeTruthy();
     fireEvent.change(search, { target: { value: 'Hospital 002' } });
-    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(10);
+    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(6);
+    expect(connections.getByText('1–6 of 12 connections')).toBeTruthy();
+    fireEvent.click(connections.getByRole('button', { name: 'Next connections' }));
+    expect(connections.getAllByRole('button', { name: 'Connect account' })).toHaveLength(6);
+    expect(connections.getByText('7–12 of 12 connections')).toBeTruthy();
+    expect((connections.getByRole('button', { name: 'Next connections' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(connections.getByRole('button', { name: 'Previous connections' }));
+    expect(connections.getByRole('heading', { name: 'Hospital 0020' })).toBeTruthy();
   });
 
-  it('shows loading and empty registry states without inventing connector cards', async () => {
+  it('combines name search with provider and insurer filters and resets pagination when the filter changes', async () => {
+    const connectors = [
+      ...Array.from({ length: 12 }, (_, index) => ({ ...connectionIdentity(`hospital-${index + 1}`, index + 1), name: `Boston Hospital ${index + 1}`, kind: 'provider' as const, apiType: 'patient_access' as const, configured: true, enabled: true })),
+      ...Array.from({ length: 8 }, (_, index) => ({ ...connectionIdentity(`insurer-${index + 1}`, index + 13), name: `Boston Health ${index + 1}`, kind: 'payer' as const, apiType: 'patient_access' as const, configured: true, enabled: true })),
+      { ...connectionIdentity('cambridge', 21), name: 'Cambridge Clinic', kind: 'provider' as const, apiType: 'patient_access' as const, configured: true, enabled: true },
+    ].reverse();
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors }) } as Response);
+    render(createElement(App)); goStep('Your care');
+    const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    await connections.findByRole('heading', { name: 'Boston Health 1' });
+    const search = connections.getByRole('searchbox', { name: 'Search providers and insurers' });
+    expect(connections.getByRole('button', { name: 'All connections' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.change(search, { target: { value: 'Boston' } });
+    fireEvent.click(connections.getByRole('button', { name: 'Next connections' }));
+    expect(connections.getByText('7–12 of 20 connections')).toBeTruthy();
+    fireEvent.click(connections.getByRole('button', { name: 'Providers' }));
+    expect((search as HTMLInputElement).value).toBe('Boston');
+    expect(connections.getByRole('button', { name: 'Providers' }).getAttribute('aria-pressed')).toBe('true');
+    expect(connections.getByRole('button', { name: 'All connections' }).getAttribute('aria-pressed')).toBe('false');
+    expect(connections.getByText('1–6 of 12 connections')).toBeTruthy();
+    expect(connections.getAllByRole('heading', { level: 3 }).map(heading => heading.textContent)).toEqual(Array.from({ length: 6 }, (_, index) => `Boston Hospital ${index + 1}`));
+    fireEvent.click(connections.getByRole('button', { name: 'Next connections' }));
+    expect(connections.getByRole('heading', { name: 'Boston Hospital 12' })).toBeTruthy();
+    fireEvent.click(connections.getByRole('button', { name: 'Insurers' }));
+    expect((search as HTMLInputElement).value).toBe('Boston');
+    expect(connections.getByRole('button', { name: 'Insurers' }).getAttribute('aria-pressed')).toBe('true');
+    expect(connections.getByText('1–6 of 8 connections')).toBeTruthy();
+    expect(connections.queryByText('Your provider records')).toBeNull();
+    expect(connections.getAllByText('Your claims & care history')).toHaveLength(6);
+    fireEvent.click(connections.getByRole('button', { name: 'Next connections' }));
+    expect(connections.getAllByRole('listitem')).toHaveLength(2);
+    expect(connections.getByText('7–8 of 8 connections')).toBeTruthy();
+    expect((connections.getByRole('button', { name: 'Next connections' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(search, { target: { value: 'Cambridge' } });
+    expect(connections.getByText('No providers or insurers match your search.')).toBeTruthy();
+    fireEvent.click(connections.getByRole('button', { name: 'Clear filters' }));
+    expect((search as HTMLInputElement).value).toBe('');
+    expect(connections.getByRole('button', { name: 'All connections' }).getAttribute('aria-pressed')).toBe('true');
+    expect(connections.getByText('1–6 of 21 connections')).toBeTruthy();
+  });
+
+  it('finds connection names despite accents, extra whitespace, case, or a different word order', async () => {
+    const connector = { ...connectionIdentity('saint-joseph', 3), name: 'Clinique Saint-Joséph', kind: 'provider' as const, apiType: 'patient_access' as const, configured: true, enabled: true };
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: [...status.connectors, connector] }) } as Response);
+    render(createElement(App)); goStep('Your care');
+    const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    await connections.findByRole('heading', { name: connector.name });
+    fireEvent.change(connections.getByRole('searchbox', { name: 'Search providers and insurers' }), { target: { value: '  JOSEPH   clinique  ' } });
+    expect(connections.getByRole('heading', { name: connector.name })).toBeTruthy();
+    expect(connections.getAllByRole('listitem')).toHaveLength(1);
+    expect(connections.queryByRole('heading', { name: 'Atrius Health' })).toBeNull();
+    expect(connections.queryByRole('heading', { name: 'Cigna' })).toBeNull();
+  });
+
+  it('finds an imported connection from a later page, preserves confirmation, and clears imports with the session', async () => {
+    const connectors = Array.from({ length: 13 }, (_, index) => ({ ...connectionIdentity(`hospital-${index + 1}`, index + 1), name: `Hospital ${String(index + 1).padStart(4, '0')}`, kind: 'provider' as const, apiType: 'patient_access' as const, configured: true, enabled: true }));
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors }) } as Response);
+    oauth.connect.mockResolvedValue(imported);
+    render(createElement(App)); await enterProfile(); goStep('Your care');
+    let connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    fireEvent.click(connections.getByRole('button', { name: 'Next connections' }));
+    const source = within(connections.getByRole('heading', { name: 'Hospital 0008' }).closest('li') as HTMLElement);
+    fireEvent.click(source.getByRole('button', { name: 'Connect account' }));
+    let confirmation = within(await screen.findByRole('dialog', { name: 'CONFIRM YOUR RECORDS' }));
+    expect(oauth.connect).toHaveBeenCalledWith(connectors[7].id);
+    expect(confirmation.getByText('Review the identity supplied by Hospital 0008 before adding these records to your session.')).toBeTruthy();
+    expect(connections.queryByRole('button', { name: 'Import again' })).toBeNull();
+    expect((confirmation.getByRole('button', { name: 'Add my records' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(confirmation.getByRole('checkbox', { name: /These are my records/ }));
+    fireEvent.click(confirmation.getByRole('button', { name: 'Add my records' }));
+    fireEvent.change(connections.getByRole('searchbox', { name: 'Search providers and insurers' }), { target: { value: 'Hospital 0001' } });
+    expect(connections.queryByRole('heading', { name: 'Hospital 0008' })).toBeNull();
+    fireEvent.click(connections.getByRole('button', { name: 'Your imports' }));
+    expect((connections.getByRole('searchbox', { name: 'Search providers and insurers' }) as HTMLInputElement).value).toBe('');
+    expect(connections.getByRole('button', { name: 'Your imports' }).getAttribute('aria-pressed')).toBe('true');
+    expect(connections.getAllByRole('listitem')).toHaveLength(1);
+    expect(connections.getByRole('heading', { name: 'Hospital 0008' })).toBeTruthy();
+    expect(connections.getByText('2 resources imported')).toBeTruthy();
+    fireEvent.click(connections.getByRole('button', { name: 'Import again' }));
+    confirmation = within(await screen.findByRole('dialog', { name: 'CONFIRM YOUR RECORDS' }));
+    expect(oauth.connect).toHaveBeenLastCalledWith(connectors[7].id);
+    expect((confirmation.getByRole('button', { name: 'Add my records' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(confirmation.getByRole('button', { name: 'Cancel import' }));
+    fireEvent.change(connections.getByRole('searchbox', { name: 'Search providers and insurers' }), { target: { value: 'Hospital 0008' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, clear my session' }));
+    goStep('Your care');
+    connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    expect((connections.getByRole('searchbox', { name: 'Search providers and insurers' }) as HTMLInputElement).value).toBe('');
+    expect(connections.getByRole('button', { name: 'All connections' }).getAttribute('aria-pressed')).toBe('true');
+    expect(connections.getByText('1–6 of 13 connections')).toBeTruthy();
+    expect(connections.queryByRole('button', { name: 'Import again' })).toBeNull();
+    fireEvent.click(connections.getByRole('button', { name: 'Your imports' }));
+    expect(connections.queryAllByRole('listitem')).toHaveLength(0);
+    expect(screen.queryByRole('checkbox', { name: /Imported provider/ })).toBeNull();
+  });
+
+  it('offers an empty imports filter and lets the user return to available connections', async () => {
+    render(createElement(App)); goStep('Your care');
+    const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    await connections.findByRole('heading', { name: 'Atrius Health' });
+    fireEvent.click(connections.getByRole('button', { name: 'Your imports' }));
+    expect(connections.getByRole('button', { name: 'Your imports' }).getAttribute('aria-pressed')).toBe('true');
+    expect(connections.queryAllByRole('listitem')).toHaveLength(0);
+    expect(connections.queryByRole('button', { name: 'Import again' })).toBeNull();
+    expect(connections.queryByRole('navigation', { name: 'Connection pages' })).toBeNull();
+    expect(connections.getByText('No records imported yet.')).toBeTruthy();
+    fireEvent.click(connections.getByRole('button', { name: 'Find a connection' }));
+    expect(connections.getByRole('button', { name: 'All connections' }).getAttribute('aria-pressed')).toBe('true');
+    expect(connections.getByRole('heading', { name: 'Atrius Health' })).toBeTruthy();
+    expect(connections.getByRole('heading', { name: 'Cigna' })).toBeTruthy();
+  });
+
+  it('retains an imported source and its partial-import warnings when an availability refresh removes it', async () => {
+    const warning = 'Some history records could not be imported.';
+    oauth.connect.mockResolvedValue({ ...imported, complete: false, warnings: [warning] });
+    render(createElement(App)); await enterProfile(); await importRecords();
+    const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
+    expect(connections.getByRole('button', { name: 'Import again' })).toBeTruthy();
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, connectors: [] }) } as Response);
+    fireEvent.click(connections.getByRole('button', { name: 'Retry availability' }));
+    await connections.findByText('This source is no longer in the connection directory. Your imported records are still available in this session.');
+    fireEvent.click(connections.getByRole('button', { name: 'Your imports' }));
+    expect(connections.getByRole('heading', { name: 'Atrius Health' })).toBeTruthy();
+    expect(connections.queryByRole('heading', { name: 'Cigna' })).toBeNull();
+    expect(connections.getByText('2 resources imported · Partial import')).toBeTruthy();
+    fireEvent.click(connections.getByText('1 import note'));
+    expect(connections.getByText(warning)).toBeTruthy();
+    const unavailable = connections.getByRole('button', { name: 'Connection unavailable' });
+    expect((unavailable as HTMLButtonElement).disabled).toBe(true);
+    expect(connections.queryByRole('button', { name: 'Import again' })).toBeNull();
+    expect(connections.queryByRole('button', { name: 'Connect account' })).toBeNull();
+    fireEvent.click(unavailable);
+    expect(oauth.connect).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('checkbox', { name: /Imported provider/ })).toBeTruthy();
+  });
+
+  it('shows loading and empty registry states without inventing connector rows', async () => {
     let finish!: (response: Response) => void;
     vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     render(createElement(App)); goStep('Your care');
     const connections = within(screen.getByRole('region', { name: 'Bring your records together' }));
     expect(connections.getByRole('status').textContent).toBe('Checking connection availability…');
+    expect(connections.getByRole('searchbox', { name: 'Search providers and insurers' })).toBeTruthy();
     expect(connections.queryByRole('button', { name: 'Connect account' })).toBeNull();
     await act(async () => finish({ ok: true, json: async () => ({ ...status, connectors: [] }) } as Response));
     expect(connections.getByRole('status').textContent).toBe('No provider or insurer connections are available yet. You can add your care details below.');
@@ -327,17 +476,128 @@ describe('reimports and complete catalog navigation', () => {
   });
 });
 
+describe('explicit step completion', () => {
+  const stepNames = ['Your coverage', 'Your care', 'The year ahead', 'Compare plans'];
+  function expectCompleted(completed: string[]) {
+    for (const container of [screen.getByRole('navigation', { name: 'Coverage steps' }), screen.getByLabelText('Steps')]) {
+      for (const name of stepNames) {
+        const stepButton = within(container).getByRole('button', { name: new RegExp(name) });
+        expect(Boolean(within(stepButton).queryByText('Complete')), `${name} completion`).toBe(completed.includes(name));
+      }
+    }
+  }
+
+  it('keeps steps incomplete when entering data or navigating through the sidebar and mobile steps', async () => {
+    render(createElement(App)); await enterProfile();
+    expectCompleted([]);
+    goStep('Your care');
+    fireEvent.click(screen.getByRole('button', { name: 'Add a provider' }));
+    fireEvent.change(screen.getByLabelText('Provider or facility name'), { target: { value: 'My doctor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }));
+    expectCompleted([]);
+    fireEvent.click(within(screen.getByLabelText('Steps')).getByRole('button', { name: /The year ahead/ }));
+    expectCompleted([]);
+    goStep('Compare plans');
+    fireEvent.click(screen.getByRole('button', { name: 'Review doctors and medicines' }));
+    goStep('The year ahead');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to your care' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to coverage' }));
+    expectCompleted([]);
+  });
+
+  it('marks only the step explicitly completed and allows empty optional care steps', async () => {
+    render(createElement(App));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
+    expectActiveStep('Your coverage');
+    expectCompleted([]);
+    await enterProfile();
+    for (let index = 0; index < 3; index++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
+      expectCompleted(stepNames.slice(0, index + 1));
+      expectActiveStep(stepNames[index + 1]);
+    }
+    goStep('Your coverage');
+    goStep('Your care');
+    expectCompleted(stepNames.slice(0, 3));
+    goStep('Your coverage');
+    fireEvent.change(screen.getByLabelText('Date of birth'), { target: { value: '1981-02-03' } });
+    expectCompleted(['Your care', 'The year ahead']);
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
+    expectCompleted(stepNames.slice(0, 3));
+    fireEvent.click(screen.getByRole('button', { name: 'Add a provider' }));
+    fireEvent.change(screen.getByLabelText('Provider or facility name'), { target: { value: 'My doctor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }));
+    expectCompleted(['Your coverage', 'The year ahead']);
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
+    expectCompleted(stepNames.slice(0, 3));
+  });
+
+  it('requires unfinished expected care to be confirmed before the page can be completed', async () => {
+    render(createElement(App)); await enterProfile(); goStep('The year ahead');
+    fireEvent.click(screen.getByRole('button', { name: 'Add expected care' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
+    expectActiveStep('The year ahead');
+    expect(screen.getByText('Confirm or remove unfinished care items before completing this step.')).toBeTruthy();
+    expectCompleted([]);
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Checkup' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm this care' }));
+    expect(screen.getByText('Ready for your comparison')).toBeTruthy();
+    expectCompleted([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
+    expectActiveStep('Compare plans');
+    expectCompleted(['The year ahead']);
+    goStep('The year ahead');
+    fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '2' } });
+    expectCompleted([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm this care' }));
+    expectCompleted([]);
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
+    expectCompleted(['The year ahead']);
+  });
+
+  it('requires explicit completion after comparing plans and clears every completion with the session', async () => {
+    const candidate = publicPlan('completion');
+    catalogRequest = async () => ({ plans: [candidate], total: 1, releaseId: 'completion-release', coverage: [], warnings: [] });
+    comparisonRequest = input => comparePlans(input, [candidate]);
+    render(createElement(App)); await enterProfile();
+    for (let index = 0; index < 3; index++) fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
+    expect((screen.getByRole('button', { name: 'Complete' }) as HTMLButtonElement).disabled).toBe(true);
+    expectCompleted(stepNames.slice(0, 3));
+    fireEvent.click(screen.getByRole('button', { name: 'Find available plans' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Public plan completion for comparison' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Compare selected plans' }));
+    await screen.findByRole('heading', { name: 'How your plans compare' });
+    expectCompleted(stepNames.slice(0, 3));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete' }));
+    expectCompleted(stepNames);
+    expect(screen.getByRole('button', { name: 'Completed' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Public plan completion for comparison' }));
+    expectCompleted(stepNames.slice(0, 3));
+    expect((screen.getByRole('button', { name: 'Complete' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Public plan completion for comparison' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Compare selected plans' }));
+    await screen.findByRole('heading', { name: 'How your plans compare' });
+    expectCompleted(stepNames.slice(0, 3));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete' }));
+    expectCompleted(stepNames);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, clear my session' }));
+    expectCompleted([]);
+    expectActiveStep('Your coverage');
+  });
+});
+
 describe('consumer session flow', () => {
   it('renders the welcome screen without connected services or personal data', () => {
     const html = renderToString(createElement(App));
     expect(html).toContain('Good coverage starts');
-    expect(html).toContain('Continue to your care');
+    expect(html).toContain('Complete and continue');
     expect(html).not.toContain('Imported provider');
   });
 
   it('allows manual profile, provider and prescription entry and explicitly confirmed expected care', async () => {
     render(createElement(App)); await enterProfile();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to your care' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add a provider' }));
     fireEvent.change(screen.getByLabelText('Provider or facility name'), { target: { value: 'My physician' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add provider' }));
@@ -347,7 +607,7 @@ describe('consumer session flow', () => {
     fireEvent.change(screen.getByLabelText('Quantity per fill'), { target: { value: '30' } });
     fireEvent.change(screen.getByLabelText('Days supplied per fill'), { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add prescription' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Plan the year ahead' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add expected care' }));
     expect((screen.getByRole('button', { name: 'Confirm this care' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Primary care visit' } });
@@ -394,7 +654,7 @@ describe('consumer session flow', () => {
   it('blocks a mismatched import until identity is reviewed and does not merge before confirmation', async () => {
     oauth.connect.mockResolvedValue(imported);
     render(createElement(App)); await enterProfile('1981-02-03');
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to your care' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
     await screen.findByRole('dialog', { name: 'CONFIRM YOUR RECORDS' });
     expect(screen.queryByRole('checkbox', { name: /Imported provider/ })).toBeNull();
@@ -413,6 +673,7 @@ describe('consumer session flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Find available plans' }));
     await waitFor(() => expect(complete).toBeTypeOf('function'));
     fireEvent.click(screen.getByRole('button', { name: 'Clear session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, clear my session' }));
     await act(async () => complete({ plans: [], total: 0, releaseId: 'stale-release', coverage: [], warnings: ['Stale response should never appear'] }));
     expect((screen.getByLabelText('Date of birth') as HTMLInputElement).value).toBe('');
     goStep('Compare plans');
@@ -424,9 +685,10 @@ describe('consumer session flow', () => {
     let complete!: (data: ImportResult) => void;
     oauth.connect.mockImplementation(() => new Promise(resolve => { complete = resolve; }));
     render(createElement(App)); await enterProfile();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to your care' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Connect account' }));
     fireEvent.click(screen.getByRole('button', { name: 'Clear session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, clear my session' }));
     await act(async () => complete(imported));
     expect(screen.queryByRole('dialog', { name: 'CONFIRM YOUR RECORDS' })).toBeNull();
     goStep('Your care');
@@ -440,7 +702,7 @@ describe('consumer session flow', () => {
     catalogRequest = async () => ({ plans: [candidate], total: 1, releaseId: 'selection-release', coverage: [], warnings: [] });
     comparisonRequest = input => comparePlans(input, [candidate]);
     render(createElement(App)); await enterProfile();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue to your care' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Complete and continue' }));
     for (const [name, npi] of [['Chosen doctor', '1234567890'], ['Old doctor', '9999999999']]) {
       fireEvent.click(screen.getByRole('button', { name: 'Add a provider' }));
       fireEvent.change(screen.getByLabelText('Provider or facility name'), { target: { value: name } });
@@ -484,7 +746,7 @@ describe('consumer session flow', () => {
     const amount = screen.getByLabelText(/^Other Medicare premiums per month/) as HTMLInputElement;
     expect(amount.value).toBe('');
     fireEvent.click(screen.getByRole('button', { name: 'Compare selected plans' }));
-    await screen.findByText('Still incomplete');
+    await screen.findAllByText('Still incomplete');
     expect(submitted[0].additionalMonthlyPremiums).toEqual({});
     fireEvent.change(amount, { target: { value: '125' } });
     expect(screen.queryByText('How your plans compare')).toBeNull();
@@ -503,5 +765,130 @@ describe('consumer session flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Find available plans' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Medicare premium test plan for comparison' }));
     expect((screen.getByLabelText(/^Other Medicare premiums per month/) as HTMLInputElement).value).toBe('');
+  });
+});
+
+
+describe('senior-friendly navigation and recovery', () => {
+  it('changes reading size without losing entered information', async () => {
+    const { container } = render(createElement(App)); await enterProfile();
+    fireEvent.change(screen.getByLabelText('Text size'), { target: { value: 'largest' } });
+    expect(container.querySelector('.app-shell')?.getAttribute('data-text-size')).toBe('largest');
+    expect((screen.getByLabelText('Date of birth') as HTMLInputElement).value).toBe('1980-02-03');
+    expectActiveStep('Your coverage');
+  });
+
+  it('preserves work when clearing is cancelled and clears only after confirmation', async () => {
+    render(createElement(App)); await enterProfile();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear session' }));
+    const confirmation = within(screen.getByRole('dialog', { name: 'Clear your session?' }));
+    expect(confirmation.getByText(/This cannot be undone/)).toBeTruthy();
+    fireEvent.click(confirmation.getByRole('button', { name: 'Keep working' }));
+    expect((screen.getByLabelText('Date of birth') as HTMLInputElement).value).toBe('1980-02-03');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, clear my session' }));
+    expect((screen.getByLabelText('Date of birth') as HTMLInputElement).value).toBe('');
+  });
+
+  it('restores a removed provider and care link while requiring a fresh confirmation', async () => {
+    render(createElement(App)); await enterProfile(); goStep('Your care');
+    fireEvent.click(screen.getByRole('button', { name: 'Add a provider' }));
+    fireEvent.change(screen.getByLabelText('Provider or facility name'), { target: { value: 'My doctor' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add provider' }));
+    goStep('The year ahead');
+    fireEvent.click(screen.getByRole('button', { name: 'Add expected care' }));
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Checkup' } });
+    const providerId = (screen.getByRole('option', { name: 'My doctor' }) as HTMLOptionElement).value;
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: providerId } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm this care' }));
+    goStep('Your care');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove My doctor' }));
+    expect(screen.queryByRole('checkbox', { name: /My doctor/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Undo removal' }));
+    expect(screen.getByRole('checkbox', { name: /My doctor/ })).toBeTruthy();
+    goStep('The year ahead');
+    const restoredProvider = screen.getByLabelText('Provider');
+    if (!(restoredProvider instanceof HTMLSelectElement)) throw new Error('Expected a provider select');
+    expect(restoredProvider.value).toBe(providerId);
+    expect(screen.getByRole('button', { name: 'Confirm this care' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove care item 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, clear my session' }));
+    expect(screen.queryByRole('button', { name: 'Undo removal' })).toBeNull();
+  });
+
+  it('offers local form help when the assistant is unavailable', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...status, ai: { enabled: false } }) } as Response);
+    render(createElement(App)); await waitFor(() => expect(fetch).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Ask the assistant' }));
+    const guide = within(screen.getByRole('region', { name: 'Help with forms and insurance terms' }));
+    expect(guide.getByText('What if I do not know a cost or code?')).toBeTruthy();
+    fireEvent.click(guide.getByText('What if I do not know a cost or code?'));
+    expect(guide.getByText(/A blank cost means/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Send question' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('provides a direct recovery path when comparison is missing required coverage', async () => {
+    render(createElement(App)); goStep('Compare plans');
+    fireEvent.click(screen.getByRole('button', { name: 'Find available plans' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go to missing coverage details' }));
+    expect(screen.getByLabelText('Date of birth')).toBeTruthy();
+    expectActiveStep('Your coverage');
+  });
+
+  it('prints a comparison that includes consistent cost rows and source information', async () => {
+    const candidate = publicPlan('print');
+    catalogRequest = async () => ({ plans: [candidate], total: 1, releaseId: 'print-release', coverage: [], warnings: [] });
+    comparisonRequest = input => comparePlans(input, [candidate]);
+    const print = vi.fn(); vi.stubGlobal('print', print);
+    render(createElement(App)); await enterProfile(); goStep('Compare plans');
+    fireEvent.click(screen.getByRole('button', { name: 'Find available plans' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select Public plan print for comparison' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Compare selected plans' }));
+    await screen.findByRole('heading', { name: 'How your plans compare' });
+    const table = within(screen.getByRole('table', { name: 'Your costs, doctors, and prescriptions at a glance' }));
+    expect(table.getByRole('rowheader', { name: 'Plan premium each month, before assistance' })).toBeTruthy();
+    expect(table.getByRole('rowheader', { name: 'Estimated total for your coverage period' })).toBeTruthy();
+    expect(document.querySelector('.comparison-section .print-only .source-reference')?.textContent).toContain('Synthetic test data');
+    fireEvent.click(screen.getByRole('button', { name: 'Print comparison' }));
+    expect(print).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('accessible recovery edge cases', () => {
+  it('keeps focus on unfinished care after deferred animation frames run', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    render(createElement(App)); await enterProfile(); goStep('The year ahead');
+    fireEvent.click(screen.getByRole('button', { name: 'Add expected care' }));
+    goStep('Compare plans');
+    fireEvent.click(screen.getByRole('button', { name: 'Review expected care' }));
+    const unfinished = document.querySelector('article.care-event');
+    expect(unfinished).not.toBeNull();
+    expect(document.activeElement).toBe(unfinished);
+    act(() => { for (const frame of frames) frame(0); });
+    expect(document.activeElement).toBe(unfinished);
+  });
+
+  it('protects optional-only answers on exit and stops warning once the session is cleared', async () => {
+    render(createElement(App)); await waitFor(() => expect(fetch).toHaveBeenCalled());
+    const initialExit = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(initialExit);
+    expect(initialExit.defaultPrevented).toBe(false);
+    fireEvent.change(screen.getByLabelText('Are you enrolled in Medicare Part A?'), { target: { value: 'yes' } });
+    const editedExit = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(editedExit);
+    expect(editedExit.defaultPrevented).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, clear my session' }));
+    const clearedExit = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(clearedExit);
+    expect(clearedExit.defaultPrevented).toBe(false);
+  });
+
+  it('does not mark coverage ready or search with dates outside the supported year', async () => {
+    render(createElement(App)); await enterProfile();
+    fireEvent.change(screen.getByLabelText('Coverage ends'), { target: { value: '2027-01-01' } });
+    goStep('Compare plans'); fireEvent.click(screen.getByRole('button', { name: 'Find available plans' }));
+    expect(screen.getByRole('button', { name: 'Go to missing coverage details' })).toBeTruthy();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === '/api/catalog/search')).toBe(false);
   });
 });

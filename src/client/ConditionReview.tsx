@@ -2,7 +2,7 @@ import type { BenefitCondition, ConditionConfirmation, ExpectedCareEvent, Medica
 import { getApplicableConditions, getPlanConditions } from '../domain/index';
 
 function ConditionField({ condition, value, onChange }: { condition: BenefitCondition; value?: ConditionConfirmation; onChange: (status: ConditionConfirmation['status']) => void }) {
-  return <label className="condition-control"><span>{condition.label}</span><select value={value?.status ?? 'unknown'} onChange={event => onChange(event.target.value as ConditionConfirmation['status'])}><option value="unknown">Not confirmed</option><option value="satisfied">Confirmed satisfied</option><option value="not_satisfied">Not satisfied</option></select></label>;
+  return <label className="condition-control"><span>{condition.label}</span><select value={value?.status ?? 'unknown'} onChange={event => onChange(event.target.value as ConditionConfirmation['status'])}><option value="unknown">Not sure yet</option><option value="satisfied">Yes, confirmed</option><option value="not_satisfied">No, not met</option></select></label>;
 }
 export function ConditionReview({ plans, events, providers, medications, conditions, onPlanChange, onEventChange }: { plans: Plan[]; events: ExpectedCareEvent[]; providers: ProviderPreference[]; medications: Medication[]; conditions: ConditionConfirmation[]; onPlanChange: (id: string, status: ConditionConfirmation['status']) => void; onEventChange: (eventId: string, id: string, status: ConditionConfirmation['status']) => void }) {
   const groups = plans.map(plan => {

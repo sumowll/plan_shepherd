@@ -1,0 +1,440 @@
+/* Reader settings scale text, including dialogs, without changing browser zoom. */
+:root {
+  font-size: 100%;
+  --muted: #4e604b;
+  --line: #b6c2ad;
+}
+
+.app-shell {
+  --reader-scale: 1;
+  --font-body: calc(1.125rem * var(--reader-scale));
+  --font-support: calc(1rem * var(--reader-scale));
+  --font-heading: calc(1.5rem * var(--reader-scale));
+  --font-display: calc(2rem * var(--reader-scale));
+  font-size: var(--font-body);
+  line-height: 1.65;
+  color: #263c35;
+}
+
+.app-shell[data-text-size="large"] { --reader-scale: 1.125; }
+.app-shell[data-text-size="largest"] { --reader-scale: 1.25; }
+
+.app-shell :is(
+  .field-label, .field input, .field select, .field textarea, .button, .text-button,
+  .icon-button, .add-button, .session-button, .search-input input, .chat-form textarea,
+  .directory-search-box input, .directory-search-label, .directory-connection-info h3,
+  .record-select strong, .family-option strong, .match-row strong, .match-section h4,
+  .form-section-heading h3, .form-details > summary, .history-card > details > summary,
+  .advanced-details > summary, .coverage-group > summary, .condition-section summary,
+  .condition-control > span, .condition-control select, .identity-confirm,
+  .eligibility-items summary, .care-event-top > strong, .event-condition-title,
+  .benefit-name strong, .benefit-item > p, .identity-card dl, .chat-message > p, .assistant-heading p, .proposal-card p,
+  .proposal-card dl, .evidence-list > label, .evidence-list strong,
+  .page-description, .forecast-banner p, .empty-state > p, .small-empty > p,
+  .context-card > p, .context-feature strong, .context-feature span,
+  .plan-summary, .cost-summary, .table-scroll table, .table-scroll td strong,
+  .directory-guide p, .notice, .source-review p,
+  .help-guide, .form-introduction, .premium-guide, .repeat-care,
+  .form-error-summary, .error-summary, .care-errors, .comparison-overview table
+) { font-size: var(--font-body); }
+
+.app-shell :is(
+  small, .sidebar-caption, .nav-label, .step-link small, .step-number,
+  .breadcrumb, .year-pill, .eyebrow,
+  .card-heading p, .section-count, .optional-tag, .field-hint, .field-requirement,
+  .form-section-heading > span, .form-footer > span, .context-footnote,
+  .rail-note p, .rail-note strong, .eligibility-panel > p, .eligibility-detail,
+  .muted, .section-note, .small-empty > span, .record-select small,
+  .event-confirm > span, .draft-tag, .forecast-summary > p,
+  .forecast-summary > div > span:last-child, .family-option small,
+  .family-selector legend, .search-footer > span, .plan-issuer, .plan-family,
+  .plan-tags span, .premium-caption, .premium-amount > span, .match-row small,
+  .comparison-footnote, .comparison-filters, .page-footer, .page-footer > button,
+  .source-reference, .source-reference > span, .detail-data-notes,
+  .chat-thinking, .chat-message > span, .chat-form > div > span,
+  .proposal-card > small, .coverage-notes strong, .coverage-notes span,
+  .status-badge, .count-pill, .benefit-facts > span, .document-links > a,
+  .evidence-picker summary, .evidence-picker > p, .evidence-picker > small,
+  .evidence-list small, .evidence-count, .conversation-reset,
+  .directory-search-area > p, .directory-filters > button,
+  .directory-filters > button > span, .directory-results-summary,
+  .directory-results-summary > span, .directory-connection-type,
+  .directory-connection-note, .directory-import-status, .directory-import-notes,
+  .directory-pagination > span, .directory-empty > p,
+  .connection-directory .directory-privacy, .directory-manual-entry > span,
+  .comparison-tray small, .estimated-total > span, .estimated-total > small,
+  .comparison-warnings, .comparison-warnings summary, .table-scroll th,
+  .table-scroll td small, .field-error, .recurrence-preview, .progress-checklist,
+  .reader-controls, .session-actions, .save-progress, .undo-notice
+) { font-size: var(--font-support); }
+
+.app-shell :is(
+  .sidebar-caption, .nav-label, .breadcrumb,
+  .year-pill, .eyebrow, .card-heading p, .section-count, .optional-tag, .field-hint,
+  .field-requirement, .form-section-heading > span, .form-footer > span,
+  .context-card > p, .context-feature span, .context-footnote, .rail-note p,
+  .eligibility-panel > p, .eligibility-detail, .muted, .section-note,
+  .small-empty > span, .record-select small, .forecast-banner p,
+  .empty-state > p, .event-confirm > span, .forecast-summary > p,
+  .forecast-summary > div > span:last-child, .family-option small,
+  .search-footer > span, .plan-issuer, .plan-family, .premium-caption,
+  .premium-amount > span, .plan-summary dt, .cost-summary dt, .match-row small,
+  .comparison-footnote, .page-footer, .page-footer > button, .source-reference,
+  .detail-data-notes, .assistant-heading p, .chat-thinking, .chat-form > div > span,
+  .proposal-card p, .proposal-card dt, .proposal-card > small, .table-scroll th,
+  .table-scroll td small, .directory-search-area > p, .directory-results-summary,
+  .directory-connection-type, .directory-connection-note, .directory-pagination > span,
+  .directory-empty, .comparison-filters, .plan-tags span, .evidence-picker > p,
+  .evidence-list small, .evidence-count, .comparison-tray small
+) { color: var(--muted); opacity: 1; }
+
+.app-shell :is(.field-label, .record-select strong, .family-option strong, .match-row strong,
+  .match-section h4, .plan-summary dd, .cost-summary dd, .source-reference > a,
+  .document-links > a, .comparison-tray strong, .step-link, .icon-button, .button-quiet,
+  .text-button, .add-button, .condition-control > span, .condition-control select) {
+  color: #294b35;
+}
+
+.app-shell :is(.page-heading h1) {
+  font-size: var(--font-display);
+  line-height: 1.25;
+  letter-spacing: -.025em;
+  margin-top: 8px;
+}
+
+.app-shell :is(.card-heading h2, .care-grid .card-heading h2, .form-section h3,
+  .condition-section > h3, .medicare-premiums h3) {
+  font-size: var(--font-heading);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.app-shell :is(.section-toolbar h2, .context-card h2, .forecast-banner h2,
+  .plan-card h3, .comparison-card h3, .empty-state h3, .detail-section-title,
+  .assistant-heading h2, .proposal-card h3, .identity-card > strong, .dialog-title) {
+  font-size: calc(1.75rem * var(--reader-scale));
+  line-height: 1.35;
+}
+
+.app-shell :is(.premium-amount, .estimated-total > strong, .summary-value) {
+  font-size: calc(2rem * var(--reader-scale));
+  line-height: 1.35;
+}
+
+.app-shell :is(.eligibility-panel > h3, .step-link strong, .comparison-tray strong) {
+  font-size: var(--font-body);
+  line-height: 1.5;
+}
+
+.app-shell :is(p, li, dt, dd, label, summary) { overflow-wrap: anywhere; }
+.app-shell :is(.field input, .field select, .field textarea, .search-input,
+  .directory-search-box, .chat-form, .condition-control select) { border-color: #7e9276; }
+.app-shell :is(input, textarea)::placeholder { color: #596954; opacity: 1; }
+.app-shell :is(.card, .plan-card, .comparison-card, .care-event, .benefit-item,
+  .record-inline-edit, .family-option, .identity-card, .evidence-picker) { border-color: #b0bea5; }
+
+.app-shell :is(button, .button, .icon-button, .text-button, summary, .session-button,
+  .directory-filters > button, .directory-pagination > .button, .connector-row > .button,
+  .event-confirm .button, .chat-form .button) {
+  min-height: 48px;
+}
+
+.app-shell :is(.button, .text-button, .icon-button, .session-button, .add-button) {
+  line-height: 1.5;
+  white-space: normal;
+  text-align: center;
+  gap: .55em;
+}
+
+.app-shell :is(.icon-button, .chat-form .button) {
+  width: auto;
+  height: auto;
+  min-width: 48px;
+  padding: 10px 12px;
+}
+
+.app-shell .icon-button.subtle { color: #784839; }
+.app-shell :is(.text-button, .page-footer > button) { text-decoration: underline; text-underline-offset: .2em; }
+.app-shell .button-secondary { border-color: #7f9674; }
+.app-shell button:disabled { opacity: 1; background: #e6e9e1; border-color: #aeb8a5; color: #53634b; }
+.app-shell :is(input, select):disabled { opacity: 1; background-color: #edf0e8; color: #53634b; }
+.app-shell :is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid #225b8b;
+  outline-offset: 3px;
+}
+.app-shell .main-content:focus-visible { outline: 3px solid #225b8b !important; outline-offset: -3px; }
+.app-shell :is(.directory-search-box, .search-input):focus-within { outline: 3px solid #225b8b; outline-offset: 3px; }
+.app-shell :is(.field input, .field select, .field textarea, .directory-search-box input,
+  .search-input input, .condition-control select) {
+  height: auto;
+  min-height: 52px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  line-height: 1.5;
+}
+.app-shell .field select { padding-right: 36px; }
+.app-shell .input-prefix > span { color: #4e604b; font-size: var(--font-body); }
+.app-shell input[type="checkbox"] { width: 24px; height: 24px; min-height: 24px; padding: 0; }
+.app-shell :is(.record-select, .identity-confirm, .family-option, .plan-check,
+  .comparison-filters > label, .evidence-list > label) { min-height: 48px; padding-block: 10px; gap: 12px; }
+.app-shell .plan-check { display: inline-flex; align-items: center; min-width: 48px; justify-content: center; }
+.app-shell :is(.plan-selected, .family-option.selected) { border: 2px solid #315f39; background: #edf4e6; }
+.app-shell .button-confirmed { color: #254f2d; border: 2px solid #507545; }
+.app-shell .status-badge { white-space: normal; line-height: 1.45; padding: .3em .5em; color: #46543f; }
+.app-shell :is(.status-covered, .status-in_network, .status-likely_eligible) { color: #2f5929; }
+.app-shell :is(.status-not_covered, .status-out_of_network, .status-likely_ineligible) { color: #7b382a; }
+.app-shell .status-conditional { color: #6c4d16; }
+.app-shell :is(.notice-warning, .comparison-warnings, .directory-import-notes) { color: #674a17; }
+.app-shell .notice { line-height: 1.7; }
+.app-shell .notice-success { color: #31572c; }
+
+.app-shell .sidebar { width: 300px; padding: 30px 20px; overflow-y: auto; }
+.app-shell .workspace { width: calc(100% - 300px); margin-left: 300px; }
+.app-shell .sidebar-caption { margin-left: 12px; }
+.app-shell .nav-label { letter-spacing: .07em; margin-top: 30px; }
+.app-shell .step-link { padding: 14px 10px; gap: 10px; }
+.app-shell .step-link > span:nth-child(2) { min-width: 0; }
+.app-shell .step-link.active { color: #fff; }
+.app-shell .step-link small { opacity: 1; }
+.app-shell .step-number { opacity: 1; }
+.app-shell .sidebar-bottom { padding: 24px 0 0; }
+.app-shell .sidebar-bottom .sidebar-assistant {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 84px;
+  padding: 20px 16px;
+  border: 1px solid #b0bea5;
+  border-radius: 12px;
+  background: #e5ecdf;
+  color: #294b35;
+  font-size: var(--font-body);
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: left;
+}
+.app-shell .sidebar-assistant:hover { background: #dbe5d3; border-color: #7f9674; }
+.app-shell .topbar { height: auto; min-height: 90px; flex-wrap: wrap; padding: 16px 32px; }
+.app-shell :is(.topbar-actions, .session-actions, .reader-controls) { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.app-shell .session-control { display: grid; justify-items: end; gap: 4px; max-width: 100%; }
+.app-shell .session-note { font-size: var(--font-support); color: var(--muted); line-height: 1.4; }
+.app-shell .reader-controls { border: 1px solid #94a388; border-radius: 8px; padding: 6px 10px; }
+.app-shell .reader-controls select { min-height: 48px; max-width: 100%; border: 1px solid #7e9276; border-radius: 5px; padding: 8px; background: #fff; color: #263c35; font-size: var(--font-support); }
+.app-shell .reader-controls button[aria-pressed="true"] { background: var(--forest); color: #fff; box-shadow: inset 0 0 0 2px var(--forest); }
+.app-shell .main-content { padding: 24px 32px 0; max-width: 1500px; }
+.app-shell .page-heading { min-height: 0; margin-bottom: 20px; }
+.app-shell .page-heading .page-description { max-width: 64em; margin-top: 8px; font-size: var(--font-support); line-height: 1.5; }
+.app-shell .content-grid { grid-template-columns: minmax(0, 1fr); }
+.app-shell .context-rail { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); align-items: start; }
+.app-shell :is(.care-grid, .plan-grid, .comparison-grid) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+.app-shell .card { padding: 28px; }
+.app-shell :is(.form-grid, .event-grid) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.app-shell :is(.card-heading, .form-section-heading, .record-row, .benefit-name,
+  .event-confirm, .care-event-top, .forecast-summary, .identity-actions,
+  .inline-actions, .comparison-tray, .form-footer, .section-toolbar) { flex-wrap: wrap; }
+.app-shell .record-select { flex: 1 1 100%; }
+.app-shell .record-row > .icon-button { border: 1px solid #aebca3; }
+.app-shell .care-event-top > strong { flex: 1 1 160px; }
+.app-shell .event-confirm > span { max-width: none; }
+.app-shell .draft-tag { max-width: none; }
+.app-shell .family-selector { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.app-shell .family-option { padding: 16px; }
+.app-shell .family-option > span { display: block; min-width: 0; }
+.app-shell :is(.plan-summary > div, .cost-summary > div) { flex-wrap: wrap; row-gap: 3px; }
+.app-shell :is(.plan-summary dd, .cost-summary dd) { white-space: normal; }
+.app-shell .match-row { flex-direction: column; }
+.app-shell .comparison-tray { position: static; padding: 20px; background: #edf4e6; }
+.app-shell .comparison-tray small { max-width: none; }
+.app-shell .eligibility-panel { padding: 12px 20px; }
+.app-shell .eligibility-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
+  cursor: pointer;
+  color: #294b35;
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+.app-shell .eligibility-panel > summary::-webkit-details-marker { display: none; }
+.app-shell .eligibility-panel[open] > summary > svg { transform: rotate(180deg); }
+.app-shell .condition-control { grid-template-columns: minmax(0, 1fr) minmax(210px, .6fr); }
+.app-shell .dialog { width: min(1100px, calc(100% - 32px)); max-height: calc(100dvh - 32px); color: #263c35; }
+.app-shell .assistant-dialog { width: min(600px, calc(100% - 32px)); max-width: 600px; }
+.app-shell .dialog-top { position: sticky; top: -30px; z-index: 1; padding-block: 12px; background: #fcfdf9; }
+.app-shell .chat-form > div { flex-wrap: wrap; }
+.app-shell .chat-form textarea { min-height: 110px; }
+.app-shell .evidence-picker > input { width: 100%; min-height: 52px; font-size: var(--font-body); }
+.app-shell .evidence-list { max-height: 360px; }
+.app-shell .table-scroll { border: 1px solid #a9b9a0; border-radius: 8px; }
+.app-shell .table-scroll th { color: #344f37; }
+.app-shell .table-scroll td { color: #314830; }
+
+.app-shell .directory-filters { gap: 10px; }
+.app-shell .directory-filters > button { border-color: #a1b197; padding: 10px 12px; }
+.app-shell .directory-filters > button[aria-pressed="true"] { background: #e3edd9; border: 2px solid #315f39; color: #23482b; }
+.app-shell .directory-filters > button > span { color: #3b5637; }
+.app-shell .connector-row { grid-template-columns: 40px minmax(0, 1fr); align-items: start; gap: 16px; padding: 24px 0; }
+.app-shell .connector-row > .button { grid-column: 2; justify-self: start; min-width: 0; }
+.app-shell .directory-import-notes summary { display: flex; align-items: center; }
+.app-shell .directory-pagination { flex-wrap: wrap; }
+.app-shell .directory-search-box { min-width: 0; }
+.app-shell .directory-search-box input { min-width: 0; }
+
+/* Short guidance, review summaries, and field-level recovery. */
+.app-shell :is(.help-guide, .form-introduction, .save-progress,
+  .premium-guide, .recurrence-preview) { border: 1px solid #a3b499; border-radius: 8px; background: #f1f6e9; padding: 20px; margin: 20px 0; }
+.app-shell .progress-checklist { display: grid; gap: 12px; padding-left: 24px; margin-top: 16px; }
+.app-shell .progress-checklist > div { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-top: 1px solid #b6c2ad; padding-top: 12px; }
+.app-shell .progress-checklist a { text-decoration: underline; text-underline-offset: .2em; }
+.app-shell .progress-checklist button { text-align: left; }
+.app-shell :is(.advanced-details, .coverage-group) { border: 1px solid #aebea3; border-radius: 8px; margin: 24px 0; padding: 16px 20px; background: #fcfdf9; }
+.app-shell :is(.advanced-details, .coverage-group) > summary { cursor: pointer; color: #2d4d34; font-weight: 600; line-height: 1.6; padding-block: 8px; }
+.app-shell :is(.advanced-details, .coverage-group)[open] > summary { margin-bottom: 20px; }
+.app-shell .advanced-details { grid-column: 1 / -1; }
+.app-shell :is(.coverage-group > h3, .progress-checklist > h2) { font-size: var(--font-heading); line-height: 1.4; margin-bottom: 16px; }
+.app-shell .coverage-group > .field-hint { display: block; margin-bottom: 20px; }
+.app-shell .advanced-details > p { margin-bottom: 20px; }
+.app-shell .advanced-details > .field + .field { margin-top: 20px; }
+.app-shell .field-requirement { font-weight: 400; }
+.app-shell :is(.error-summary, .form-error-summary, .care-errors) { border: 2px solid #99412e; border-radius: 8px; background: #fff6f0; color: #742919; padding: 18px; margin: 18px 0; }
+.app-shell :is(.error-summary, .form-error-summary, .care-errors) a { text-decoration: underline; }
+.app-shell .field-error { display: block; color: #812f21; font-weight: 500; line-height: 1.6; }
+.app-shell [aria-invalid="true"] { border: 2px solid #99412e; }
+.app-shell .undo-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+.app-shell .help-guide :is(p, ul, ol) + :is(p, ul, ol) { margin-top: 16px; }
+.app-shell .help-guide :is(h3, h4) { margin: 24px 0 12px; color: #294b35; }
+.app-shell .help-guide > .help-guide { border: 0; padding: 0; margin: 0; }
+.app-shell .help-guide details { padding: 12px 0; border-top: 1px solid #a9b9a0; }
+.app-shell .help-guide summary { padding: 10px 0; color: #294b35; font-weight: 600; cursor: pointer; }
+.app-shell .help-guide details > :not(summary) { margin-top: 16px; }
+.app-shell .help-guide dt { margin-top: 16px; font-weight: 600; }
+.app-shell .help-guide dd { margin: 6px 0 0; }
+.app-shell .help-guide a { display: inline-block; padding-block: 10px; text-decoration: underline; text-underline-offset: .2em; }
+.app-shell .premium-guide-total { margin-top: 18px; border-top: 1px solid #a9b9a0; padding-top: 16px; font-weight: 600; }
+.app-shell .repeat-care { margin-top: 24px; border-top: 1px solid #a9b9a0; padding-top: 24px; }
+.app-shell .recurrence-preview { overflow-wrap: anywhere; }
+.app-shell .comparison-overview { max-width: 100%; min-width: 0; overflow-x: auto; margin: 24px 0; border: 1px solid #95aa88; border-radius: 8px; }
+.app-shell .comparison-overview > p { padding: 16px; font-size: var(--font-support); }
+.app-shell .comparison-overview .table-scroll { margin-top: 0; border: 0; border-radius: 0; }
+.app-shell .comparison-overview table { border-collapse: collapse; width: 100%; min-width: 640px; line-height: 1.6; }
+.app-shell .comparison-overview :is(th, td) { vertical-align: top; text-align: left; padding: 18px; border-bottom: 1px solid #b6c2ad; }
+.app-shell .comparison-overview th { background: #eaf1e1; color: #2a4932; }
+.app-shell .comparison-overview caption { padding: 16px; text-align: left; font-weight: 600; }
+.app-shell .comparison-mobile-summary { margin: 16px 0; padding: 16px; background: #eef4e7; border-left: 4px solid #58794a; }
+.print-only { display: none; }
+
+@media (max-width: 1100px) {
+  .app-shell .sidebar { display: none; }
+  .app-shell .workspace { margin-left: 0; width: 100%; }
+  .app-shell .mobile-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 24px; padding: 0; }
+  .app-shell .mobile-steps > button { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 80px; padding: 12px 8px; border: 1px solid #a8b99d; border-radius: 8px; font-size: var(--font-support); color: #3f5b35; }
+  .app-shell .mobile-steps > button > span { width: 32px; height: 32px; display: grid; place-items: center; font-size: var(--font-support); border: 1px solid #7f976f; border-radius: 50%; }
+  .app-shell .mobile-steps > button.active { border: 2px solid var(--forest); background: #eaf2e1; color: var(--forest); font-weight: 600; }
+  .app-shell .mobile-steps > button.active > span { background: var(--forest); color: #fff; }
+}
+
+@media (max-width: 680px) {
+  .app-shell .topbar { padding: 16px; gap: 16px; }
+  .app-shell .breadcrumb { display: none; }
+  .app-shell :is(.topbar-actions, .session-actions) { width: 100%; }
+  .app-shell .session-control { justify-items: start; }
+  .app-shell .reader-controls { flex: 1 1 100%; }
+  .app-shell .main-content { padding: 20px 16px 0; }
+  .app-shell .page-heading h1 { font-size: calc(1.625rem * var(--reader-scale)); }
+  .app-shell .mobile-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .app-shell :is(.card, .care-grid .card) { padding: 20px 16px; }
+  .app-shell :is(.form-grid, .event-grid, .inline-form .form-grid, .care-grid,
+    .context-rail, .family-selector, .plan-grid, .comparison-grid,
+    .eligibility-expanded .eligibility-items, .condition-control) { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .field-wide { grid-column: 1 / -1; }
+  .app-shell :is(.form-footer, .step-footer, .event-confirm, .identity-actions,
+    .search-footer, .comparison-tray, .directory-manual-entry) { flex-direction: column; align-items: stretch; }
+  .app-shell :is(.step-footer, .form-footer, .event-confirm, .comparison-tray) > .button { width: 100%; }
+  .app-shell .form-footer > span { order: 0; justify-content: flex-start; }
+  .app-shell .form-footer > .button { order: 1; }
+  .app-shell .step-footer > .button-quiet { padding-left: 17px; }
+  .app-shell .forecast-banner { flex-wrap: wrap; padding: 20px 16px; }
+  .app-shell .forecast-banner > div:nth-child(2) { flex: 1 1 160px; }
+  .app-shell .forecast-banner > .button { width: 100%; margin-left: 0; }
+  .app-shell .forecast-summary { gap: 20px; padding-inline: 0; }
+  .app-shell .forecast-summary > div { white-space: normal; }
+  .app-shell .forecast-summary > p { max-width: none; flex-basis: 100%; }
+  .app-shell .event-grid { padding: 18px 14px; }
+  .app-shell .event-confirm { padding: 18px 14px; }
+  .app-shell .advanced-details { padding: 14px; }
+  .app-shell .catalog-search-card .card-heading > .text-button { margin: 0; }
+  .app-shell .catalog-query .search-input { width: 100%; max-width: none; }
+  .app-shell :is(.catalog-query, .catalog-query > .button) { width: 100%; }
+  .app-shell .directory-guide { padding: 16px; }
+  .app-shell .directory-manual-entry > span { flex-basis: auto; }
+  .app-shell .directory-filters { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .app-shell .directory-filters > button { justify-content: flex-start; }
+  .app-shell .directory-filters > .directory-import-filter { margin-left: 0; }
+  .app-shell .connector-row { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .directory-connection-icon { display: none; }
+  .app-shell .connector-row > .button { grid-column: 1; width: 100%; }
+  .app-shell .directory-results-summary { flex-wrap: wrap; gap: 6px; }
+  .app-shell .directory-pagination { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .app-shell .directory-pagination > span { order: -1; text-align: center; }
+  .app-shell .dialog { width: calc(100% - 16px); max-height: calc(100dvh - 16px); margin: auto; }
+  .app-shell .dialog-inner, .app-shell .assistant-dialog .dialog-inner { padding: 20px 16px; }
+  .app-shell .dialog-top { top: -20px; flex-wrap: wrap; }
+  .app-shell .dialog-top > .icon-button { margin-left: auto; }
+  .app-shell .assistant-dialog { height: calc(100dvh - 16px); }
+  .app-shell .benefit-name { align-items: flex-start; }
+  .app-shell .comparison-mobile-summary { display: block; }
+}
+
+@media print {
+  @page { margin: 16mm; }
+  html, body { background: #fff !important; }
+  .app-shell {
+    --reader-scale: 1;
+    --font-body: 11pt;
+    --font-support: 10pt;
+    --font-heading: 15pt;
+    display: block !important;
+    min-height: 0;
+    color: #000;
+  }
+  /* Keep personal intake, imported records, and conversations out of the printout. */
+  .app-shell > :not(.workspace),
+  .app-shell .workspace > :not(.main-content),
+  .app-shell .main-content > :not(.comparison-section) { display: none !important; }
+  .app-shell .workspace, .app-shell .main-content, .app-shell .comparison-section {
+    display: block !important;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+  .app-shell .comparison-section :is(button, input, select, textarea, nav,
+    .comparison-filters, .comparison-mobile-summary, .no-print) { display: none !important; }
+  .app-shell .comparison-section .print-only { display: block !important; }
+  .app-shell .comparison-section .print-only p { margin: 8pt 0; }
+  .app-shell .comparison-section :is(.comparison-card, .estimated-total, .comparison-overview,
+    .comparison-overview th, .comparison-overview td, .status-badge) {
+    background: #fff !important;
+    box-shadow: none !important;
+    color: #000 !important;
+    border-color: #777 !important;
+  }
+  .app-shell .comparison-section .comparison-overview { overflow: visible; }
+  .app-shell .comparison-section .comparison-overview > p { display: none; }
+  .app-shell .comparison-section .comparison-overview .table-scroll { overflow: visible; }
+  .app-shell .comparison-section .comparison-overview table { min-width: 0; table-layout: fixed; font-size: 9pt; }
+  .app-shell .comparison-section .comparison-overview :is(th, td) { padding: 8pt; }
+  .app-shell .comparison-section .comparison-grid { display: block; }
+  .app-shell .comparison-section .comparison-card { margin: 16pt 0; padding: 12pt; break-inside: auto; }
+  .app-shell .comparison-section :is(h2, h3, h4, summary, .comparison-card-heading) { break-after: avoid; }
+  .app-shell .comparison-section :is(.match-row, .cost-summary > div, .estimated-total, tr) { break-inside: avoid; }
+  .app-shell .comparison-section :is(details, details > :not(summary)) { display: block !important; }
+  .app-shell .comparison-section details::details-content { display: contents !important; content-visibility: visible !important; }
+  .app-shell .comparison-section .comparison-warnings { padding-bottom: 8pt; }
+  .app-shell .comparison-section :is(.source-reference, .comparison-footnote) { color: #222; }
+  .app-shell .comparison-section .source-reference a[href]::after { content: " (" attr(href) ")"; overflow-wrap: anywhere; }
+  .app-shell .comparison-section .source-reference svg { display: none; }
+}
