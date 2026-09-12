@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { termsPage } from './terms';
 import { aiEnabled, appOrigin, connectorConfig, connectorRedirectUri, setting, type RuntimeEnv } from './config';
 import { connectorDefinition, connectorRegistry } from './connector-registry';
 import { AppError, boundedText, readRequest } from './http';
@@ -131,6 +132,10 @@ app.on(['GET', 'POST'], ['/oauth/callback/:id', '/auth/callback/:id', '/auth/cal
   const origin = JSON.stringify(appOrigin(c.env, c.req.url));
   c.header('Content-Security-Policy', `default-src 'none'; script-src 'nonce-${nonce}'; base-uri 'none'; frame-ancestors 'none'`);
   return c.html(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Connecting securely</title><p>Returning to Plan Shepherd…</p><script nonce="${nonce}">history.replaceState(null,'','/oauth/complete');if(window.opener){window.opener.postMessage(${payload},${origin});window.close();}else{document.querySelector('p').textContent='Please return to Plan Shepherd and connect again.';}</script></html>`);
+});
+app.on('GET', ['/terms', '/terms/'], c => {
+  c.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  return c.html(termsPage);
 });
 app.get('/api/health', c => c.json({ status: 'ok', version: '1.0.0' }));
 app.all('/api/*', c => c.json({ error: { code: 'not_found', message: 'Endpoint not found.' } }, 404));
